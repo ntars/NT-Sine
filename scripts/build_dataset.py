@@ -39,6 +39,9 @@ from app.emotion.engine import RELATION_STAGES, load_stage_cards  # noqa: E402
 BANKS_DIR = ROOT / "data_factory" / "banks"
 OUT_DIR = ROOT / "data_train"
 LOCAL_BASE = Path("/Users/ntars/Documents/Github/Sine 大模型/基座模型/Qwen3-4B-Instruct-2507-4bit")
+# 训练专用基座：模板已剥掉 `<think>` 注入（见 scripts/prepare_base_nothink.py）。
+# 必须用它来量 token，否则长度统计与真实训练用的模板不是同一套。
+BASE_NOTHINK = ROOT / "runs" / "base-nothink"
 
 # 用户起手式（与场景无关，模拟真实开口）
 OPENERS = [
@@ -185,9 +188,14 @@ def main() -> int:
         print(f"台词库不存在：{BANKS_DIR}", file=sys.stderr)
         return 1
 
-    # 真 tokenizer：本地基座优先
+    # 真 tokenizer：优先用训练专用（无 think 注入）目录，保证测量与训练同一套模板
     from mlx_lm import load
-    model_id = str(LOCAL_BASE) if (LOCAL_BASE / "config.json").exists() else "mlx-community/Qwen3-4B-Instruct-2507-4bit"
+    if (BASE_NOTHINK / "config.json").exists():
+        model_id = str(BASE_NOTHINK)
+    elif (LOCAL_BASE / "config.json").exists():
+        model_id = str(LOCAL_BASE)
+    else:
+        model_id = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
     _, tokenizer = load(model_id, lazy=True)
     count_tokens = lambda s: tokenizer.encode(s, add_special_tokens=False)  # noqa: E731
 

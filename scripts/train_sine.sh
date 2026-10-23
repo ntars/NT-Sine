@@ -32,7 +32,12 @@ cd "$(dirname "$0")/.."
 
 PY=/Users/ntars/.workbuddy/binaries/python/envs/default/bin/python
 LOCAL_BASE="/Users/ntars/Documents/Github/Sine 大模型/基座模型/Qwen3-4B-Instruct-2507-4bit"
-MODEL=${MODEL:-"$LOCAL_BASE"}
+# 训练专用基座：模板已剥掉 `<think>` 注入（scripts/prepare_base_nothink.py 生成，
+# 权重是符号链接不占空间）。原因见该脚本开头的说明：原模板会把「空思考块」
+# 写进每条样本的监督目标，吃掉约四成梯度预算，还造成训练与推理的分布不一致。
+BASE_NOTHINK="runs/base-nothink"
+MODEL=${MODEL:-"$BASE_NOTHINK"}
+[ -f "$MODEL/config.json" ] || MODEL="$LOCAL_BASE"
 [ -f "$MODEL/config.json" ] || MODEL=mlx-community/Qwen3-4B-Instruct-2507-4bit
 OUT=${OUT:-runs/sine-lora}
 ITERS=${ITERS:-2000}
@@ -56,6 +61,17 @@ fi
 if pgrep -f mlx_lm.server > /dev/null; then
   echo "[体检] 检测到推理服务在运行，训练期间不允许并行推理（会抢内存导致系统卡顿）" >&2
   exit 1
+fi
+
+# ── 模板体检：训练侧不能带 `<think>` 注入 ──
+# 一旦模板退化成带思考块的版本，每条样本的监督目标都会多一段固定前缀，
+# 白烧四成梯度；这里拦住，不让它在无声无息中发生。
+if [ "$MODEL" = "$BASE_NOTHINK" ]; then
+  "$PY" scripts/prepare_base_nothink.py --check > /dev/null || {
+    echo "[体检] 训练模板校验未通过，请运行 python scripts/prepare_base_nothink.py 重新生成" >&2
+    exit 1
+  }
+  echo "[体检] 训练模板无思考块注入，已通过"
 fi
 
 # ── 训练集存在性检查（只认新构建器的产物） ──
