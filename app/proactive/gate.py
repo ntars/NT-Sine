@@ -34,8 +34,15 @@ class ProactiveGate:
         self._pending = False        # 上一条主动还没等到回应
 
     @staticmethod
-    def _day_key() -> int:
-        return int(time.time() // 86400)
+    def _day_key(ts: float | None = None) -> int:
+        """本地日历日，形如 2026031（年 ×1000 + 当年第几天）。
+
+        不能拿 `时间戳 // 86400` 当日界：那是 UTC 的日界，东八区要等到
+        早上 8 点才翻页，于是"每日最多主动 3 次"的重置点落在早八点——
+        凌晨那几次会被算进前一天，配额和 user 眼里的"今天"对不上。
+        """
+        t = time.localtime(time.time() if ts is None else ts)
+        return t.tm_year * 1000 + t.tm_yday
 
     def _roll_day(self) -> None:
         key = self._day_key()
@@ -84,7 +91,11 @@ class ProactiveGate:
         if topic_type == "承诺":
             return "你答应我的那件事，还算数吧。"
         if topic_type == "事件":
-            return f"今天是你那个事的日子吧。"[:20]
+            # 事件类必须把锚点摆出来。原来这里是一句对所有事件都一样的固定话，
+            # 等于闸门三自己定的"必须带具体锚点"没落地——她"记得"这件事就废了。
+            if not anchor:
+                return "你上次提的那件事，怎么样了。"
+            return f"{anchor[:12]}，别忘了。"[:20]
         if topic_type == "回忆":
             return f"刚才想起{anchor[:6]}那回。"[:20]
         if topic_type == "pending":

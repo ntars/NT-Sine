@@ -119,6 +119,42 @@ def test_proactive_auto_marks_unanswered():
     assert not gate._pending, "未回复应清掉待回应标记，避免每次检查都刷新冷却"
 
 
+# ── 主动消息：本地日界与事件锚点（2026-10-24 补）──
+def test_day_key_follows_local_calendar():
+    """每日配额的重置点必须跟着本地日历走，不跟 UTC。
+
+    东八区 3 月 1 日 00:30 这一刻，UTC 还停在 2 月 28 日。原本拿
+    `time.time() // 86400` 当日界，会把凌晨这几次算进"昨天"，
+    于是"每日最多主动 3 次"要等到早上八点才清零，和用户眼里的今天对不上。
+    """
+    from datetime import datetime
+
+    march1_0030 = datetime(2026, 3, 1, 0, 30).timestamp()
+    assert ProactiveGate._day_key(march1_0030) == 2026 * 1000 + 60  # 3 月 1 日是当年第 60 天
+
+    same_day = [
+        ProactiveGate._day_key(datetime(2026, 3, 1, 0, 0).timestamp()),
+        ProactiveGate._day_key(datetime(2026, 3, 1, 23, 59).timestamp()),
+    ]
+    assert same_day[0] == same_day[1], "同一本地日必须同键"
+
+    next_day = ProactiveGate._day_key(datetime(2026, 3, 2, 0, 0).timestamp())
+    assert next_day != same_day[1], "跨过本地零点必须换键"
+
+
+def test_proactive_event_message_carries_anchor():
+    """事件类主动句必须带具体锚点。
+
+    闸门三的原则写着"必须带具体锚点"，但事件分支原本是一句对所有事件
+    都一样的固定话，等于她"记得那件事"这件事完全没体现出来。
+    """
+    gate = ProactiveGate()
+    msg = gate.compose("事件", "你周五要去面试")
+    assert "面试" in msg, msg
+    assert len(msg) <= 20, "主动消息超过 20 字就像发通知"
+    assert "那件事" in gate.compose("事件", ""), "锚点为空时要有兜底句，不能留个逗号"
+
+
 # ── 3.5 档位字段 ──
 def test_turnplan_tier_matches_scan():
     """plan() 的档位必须取世界书扫描结果，不能写死。"""

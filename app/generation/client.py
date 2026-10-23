@@ -49,9 +49,6 @@ class Generator:
                 "num_ctx": int(num_ctx or SETTINGS["context"]["num_ctx"]),
                 "num_predict": int(max_tokens or s["max_tokens"]),
             },
-            # Ollama 新版 OpenAI 兼容端点也接受这两个字段；旧版会忽略，不影响主参数
-            "presence_penalty": float(s["presence_penalty"]),
-            "frequency_penalty": float(s["frequency_penalty"]),
         }
         try:
             with httpx.Client(timeout=float(self.cfg["timeout_s"])) as client:

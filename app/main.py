@@ -152,13 +152,19 @@ def chat(req: ChatRequest) -> ChatResponse:
     # 4. 输出过滤（顺序不可反）；复读/跪舔最多重生成一次
     history_replies = [m["content"] for m in recent if m["role"] == "assistant"]
     result = filter_output(reply, history=history_replies)
-    if result.need_retry and not result.blocked:
+    retried = bool(result.need_retry and not result.blocked)
+    if retried:
         try:
             retry_text = state.generator.chat(messages)
-            result = filter_output(retry_text, history=history_replies)
+            retry_result = filter_output(retry_text, history=history_replies)
+            # 重生成成功时也要给"判过复读"留痕：它说明模型这一轮状态不稳，
+            # 情感层据此降低上下文压力，调试台也能看见（覆盖掉就什么也查不到）。
+            if not retry_result.need_retry:
+                retry_result.triggered = ["复读（已重生成）"] + retry_result.triggered
+            result = retry_result
         except GenerationError:
             pass
-    state.emotion.mark_degraded(result.need_retry and not result.blocked)
+    state.emotion.mark_degraded(retried)
 
     # 5. 情感状态随本轮更新（用过滤后的文本，避免脏输出影响状态）
     state.emotion.update(user_text, result.text)
