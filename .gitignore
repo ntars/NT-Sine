@@ -59,3 +59,8 @@ models/
 
 # 本地环境变量（可能含密钥，永不入库）
 .env
+
+# 诊断脚本建的 checkpoint 符号链接目录（只是链接，不含权重，跑完可删）
+.ckpt_probe/
+.e2e_tmp/
+.pytest_tmp/
