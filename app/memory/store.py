@@ -104,6 +104,20 @@ class MemoryStore:
             ).fetchone()
         return row[0] if row else None
 
+    def last_user_ts(self) -> float | None:
+        """他最近一次开口的时刻（不含她自己说的话）。
+
+        主动消息闸门必须用它而不是 last_interaction_ts：她主动开口的那句也落在
+        messages 表里，按「最后一条消息」算的话，她自己的话会被当成「他回我了」，
+        待回应标记被清掉、冷却永不触发——实测「没回也照样 2 小时后再发一次」。
+        L5 场景里的「你们刚聊过」仍用 last_interaction_ts（含双方，语义不同）。
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT ts FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        return row[0] if row else None
+
     # ── 记忆 ──
     def add_memory(self, kind: str, content: str, source: str = "",
                    detail: dict | None = None) -> int:

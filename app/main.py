@@ -69,7 +69,9 @@ async def _proactive_loop(state: NTState) -> None:
     while True:
         try:
             memories = [m.__dict__ for m in state.store.top_memories(10)]
-            decision = state.proactive.check(state.store.last_interaction_ts(), memories,
+            # 用 last_user_ts：她主动发的那句也落在 messages 里，若按"最后一条消息"
+            # 判定，她自己的话会被当成"他回了"，冷却从此失效（实测没回也会 2 小时再发）
+            decision = state.proactive.check(state.store.last_user_ts(), memories,
                                              state.store.recent_timeline(5))
             if decision.should and decision.message:
                 # 推送由前端 SSE/轮询取走；这里只落一条 assistant 消息标记
