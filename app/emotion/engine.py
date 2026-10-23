@@ -51,8 +51,16 @@ def load_stage_cards() -> dict:
 _POSITIVE = ["开心", "喜欢", "谢谢", "哈哈哈", "哈哈", "好听", "好看", "想你", "可爱",
              "对不起", "我错了", "保证", "拉钩", "陪", "辛苦", "厉害", "真棒"]
 _NEGATIVE = ["滚", "讨厌", "烦", "生气", "吵架", "分手", "别理", "随便", "呵呵", "有病",
-             "傻逼", "无聊", "敷衍", "走", "离开", "不爱"]
+             "傻逼", "无聊", "敷衍", "走", "离开", "不爱",
+             # 口语里最常用来诉苦的词，漏了它们"我好累"会被判成中性
+             "难过", "难受", "累", "疼", "哭", "失眠", "撑不住", "委屈", "焦虑"]
 _CONFLICT = ["分手", "别来往", "你很烦", "不想理你", "讨厌你", "滚"]
+
+# 否定词与程度副词：中文的情绪常常是"不 + 正面词"或"程度词 + 负面词"，
+# 只数词频会把「不太开心」判成开心、「特别难过」和「难过」判成一样重。
+_NEGATORS = ("不", "没", "别", "无", "毫无")
+_DEGREES = {"特别": 1.6, "非常": 1.6, "超级": 1.7, "很": 1.5, "太": 1.5,
+            "有点": 0.7, "稍微": 0.6, "还算": 0.6}
 
 
 @dataclass
@@ -108,10 +116,55 @@ class EmotionEngine:
 
     # ── 信号抽取 ──
     @staticmethod
-    def signals(text: str) -> tuple[float, bool, bool]:
+    def _word_hits(text: str, word: str) -> list[int]:
+        """一个词在句子里出现的所有位置（同一句可能说两遍）。"""
+        out: list[int] = []
+        start = 0
+        while True:
+            i = text.find(word, start)
+            if i < 0:
+                return out
+            out.append(i)
+            start = i + len(word)
+
+    @staticmethod
+    def _negated(text: str, pos: int) -> bool:
+        """词前三个字内出现否定词 → 语义反转（「不太开心」是负面）。
+
+        先剥掉程度副词再找否定词：不剥的话「特别」里的「别」会被当成否定，
+        「特别难过」反而被判成正面——这是词表法最容易踩的坑。
+        """
+        head = text[max(0, pos - 3):pos]
+        for adv in _DEGREES:
+            head = head.replace(adv, "")
+        return any(n in head for n in _NEGATORS)
+
+    @staticmethod
+    def _weight(text: str, pos: int) -> float:
+        """词前的程度副词影响强度（「特别」1.6 倍，「有点」0.7 倍）。"""
+        for adv, w in _DEGREES.items():
+            if text[max(0, pos - len(adv)):pos] == adv:
+                return w
+        return 1.0
+
+    @classmethod
+    def signals(cls, text: str) -> tuple[float, bool, bool]:
         """从一段文本粗判：情绪增量、是否冲突、是否道歉/示好。"""
-        pos = sum(1 for w in _POSITIVE if w in text)
-        neg = sum(1 for w in _NEGATIVE if w in text)
+        pos = neg = 0.0
+        for w in _POSITIVE:
+            for i in cls._word_hits(text, w):
+                v = cls._weight(text, i)
+                if cls._negated(text, i):
+                    neg += v      # 「不开心」= 负面
+                else:
+                    pos += v
+        for w in _NEGATIVE:
+            for i in cls._word_hits(text, w):
+                v = cls._weight(text, i)
+                if cls._negated(text, i):
+                    pos += v      # 「不生气了」= 正面
+                else:
+                    neg += v
         conflict = any(w in text for w in _CONFLICT)
         apology = any(w in text for w in ["对不起", "我错了", "道歉", "别生气"])
         delta = (pos - neg) * 0.08

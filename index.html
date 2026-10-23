@@ -108,7 +108,7 @@
     </p>
 
     <p class="hero__status">
-      <span class="pill pill--live"><i class="dot"></i>v3.4 · 训练数据重建中</span>
+      <span class="pill pill--live"><i class="dot"></i>v3.4 · 二轮训练进行中</span>
       <span class="pill">全离线推理</span>
       <span class="pill">单角色 · 单用户</span>
     </p>
@@ -119,7 +119,7 @@
     </div>
 
     <p class="hero__note">
-      五层架构已实现并通过 45 项回归测试与 22 项冒烟测试；模型微调处于数据重建阶段，历史适配器已清除。
+      五层架构已实现并通过 59 项回归测试与 22 项冒烟测试；台词库已扩至 900 条，二轮训练进行中。
     </p>
   </section>
 
@@ -370,7 +370,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8420
 
 <span class="cm"># 5. 验证</span>
 python scripts/smoke_test.py        <span class="cm"># 22 项，不依赖模型</span>
-python -m pytest tests/ -q          <span class="cm"># 45 项回归测试</span></pre>
+python -m pytest tests/ -q          <span class="cm"># 59 项回归测试</span></pre>
 
     <div class="sec__foot">
       <p>配置文件 <code>config/settings.yaml</code> 中 <code>ollama.base_url</code> 设为推理服务地址，不带 <code>/v1</code> 后缀（生成层自动拼接）。</p>
@@ -438,8 +438,8 @@ data_train/train.jsonl + data_train/valid.jsonl</pre>
   <section class="sec" id="limits">
     <div class="sec__head">
       <p class="sec__eyebrow">已知限制</p>
-      <h2 class="sec__title">八项实现缺口</h2>
-      <p class="sec__lede">以下各项均为代码中实际存在的行为，列出以保证文档与实现一致。</p>
+      <h2 class="sec__title">六项缺口已修，两项边界保留</h2>
+      <p class="sec__lede">前六项在阶段三修复并补了回归测试；后两项是模型侧与词典法的固有边界，不打算用更多规则去追。</p>
     </div>
 
     <div class="table-wrap">
@@ -448,14 +448,14 @@ data_train/train.jsonl + data_train/valid.jsonl</pre>
           <tr><th>#</th><th>问题</th><th>位置</th></tr>
         </thead>
         <tbody>
-          <tr><th>01</th><td>分条最小字数配置项被读取但未参与计算，实际仅 25 字上限生效</td><td><code>rhythm.py:35</code></td></tr>
-          <tr><th>02</th><td>深夜放慢系数未在接口链路生效：调用未传入小时参数</td><td><code>main.py:168</code></td></tr>
-          <tr><th>03</th><td>主动消息的冷却分支不触发：相关方法无调用点</td><td><code>gate.py:60</code></td></tr>
-          <tr><th>04</th><td>调度层场景档位字段为硬编码，实际档位由世界书扫描另行返回</td><td><code>orchestrator.py:35</code></td></tr>
-          <tr><th>05</th><td>滑动窗口配置语义为「轮」但实现为「条消息」，实际约 5 轮</td><td><code>context.py:87</code></td></tr>
-          <tr><th>06</th><td>运行时过滤器不含修辞性重复豁免，4-gram 重叠超 60% 即触发重生成</td><td><code>filters.py:121</code></td></tr>
-          <tr><th>07</th><td>模型存在约 8% 概率返回空内容，已转换为异常并回落兜底句</td><td><code>client.py:64</code></td></tr>
-          <tr><th>08</th><td>情感信号抽取基于词典命中，非语义理解，复杂表达可能漏判</td><td><code>engine.py:20</code></td></tr>
+          <tr><th>01</th><td><s>分条最小字数未参与计算</s> · 已修复：短条并入相邻条</td><td><code>rhythm.py</code></td></tr>
+          <tr><th>02</th><td><s>深夜放慢未在链路生效</s> · 已修复：入口自动取当前小时</td><td><code>rhythm.py</code></td></tr>
+          <tr><th>03</th><td><s>主动冷却分支不触发</s> · 已修复：未被回应即记冷却</td><td><code>gate.py</code></td></tr>
+          <tr><th>04</th><td><s>档位字段硬编码</s> · 已修复：由扫描结果透传</td><td><code>orchestrator.py</code></td></tr>
+          <tr><th>05</th><td><s>窗口按条而非按轮</s> · 已修复：10 轮 = 20 条</td><td><code>store.py</code></td></tr>
+          <tr><th>06</th><td><s>无修辞性重复豁免</s> · 已修复：强调标记放行</td><td><code>filters.py</code></td></tr>
+          <tr><th>07</th><td>模型约 8% 概率返回空内容，已转异常并回落兜底句</td><td><code>client.py</code></td></tr>
+          <tr><th>08</th><td>情感信号抽取基于词典与规则，非语义理解，反讽仍可能漏判</td><td><code>engine.py</code></td></tr>
         </tbody>
       </table>
     </div>

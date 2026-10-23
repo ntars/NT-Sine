@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import random
+import time
 from dataclasses import dataclass
 
 from app.config import SETTINGS
@@ -39,6 +40,25 @@ def _split_segments(text: str, mood: float, max_segments: int) -> list[str]:
             buf += s
     if buf:
         segments.append(buf)
+
+    # 分条下限：短条单独发出去像打字机卡壳，先攒着并在下一条里；末尾剩下的并回上一条。
+    # 例外：整段话本身就短于 seg_min 时不做任何合并（合并也没得可并）
+    if len(text) >= seg_min:
+        merged: list[str] = []
+        carry = ""
+        for s in segments:
+            s = carry + s
+            carry = ""
+            if len(s) < seg_min:
+                carry = s
+                continue
+            merged.append(s)
+        if carry:
+            if merged:
+                merged[-1] += carry
+            else:
+                merged.append(carry)
+        segments = merged
 
     # 情绪调制：低落合并、高涨拆分
     if mood < -0.3 and len(segments) > 1:
@@ -79,6 +99,15 @@ def re_split_sentences(text: str) -> list[str]:
     if buf:
         out.append(buf)
     return out
+
+
+def plan_delivery_now(text: str, mood: float = 0.0) -> list[Segment]:
+    """生产入口：自动取本机当前小时，深夜才会真的变慢。
+
+    单独包一层的原因：底层 plan_delivery 把 hour 做成参数是为了可测，
+    但真实调用方（服务端）如果忘了穿小时，深夜变速等于没做——这里兜住。
+    """
+    return plan_delivery(text, mood=mood, hour=time.localtime().tm_hour)
 
 
 def plan_delivery(text: str, mood: float = 0.0, hour: int | None = None) -> list[Segment]:

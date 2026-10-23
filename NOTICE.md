@@ -85,6 +85,9 @@
 本项目在实现过程中阅读了以下项目的**公开文档与源码**以理解机制，然后**用 Python 独立重写**。
 仓库内**不含这些项目的任何源码**。
 
+每个条目都按四项登记：**许可 / 借鉴内容 / 实现位置 / 是否复制代码**——
+这四项缺一项，就等于来源不可追溯。
+
 ### 4.1 SillyTavern — 世界书机制设计
 
 | 项 | 内容 |
@@ -92,7 +95,7 @@
 | 仓库 | `SillyTavern/SillyTavern`（https://github.com/SillyTavern/SillyTavern） |
 | 许可证 | **AGPL-3.0** |
 | 借鉴内容 | 世界书（World Info）机制的**设计思路**：关键词触发、递归扫描、插入位置与深度、token 预算裁剪 |
-| 本项目落地 | `app/worldbook/engine.py`（六层条目、子串触发、L4 递归、互斥、预算优先级） |
+| 实现位置 | `app/worldbook/engine.py`（六层条目、子串触发、L4 递归、互斥、预算优先级） |
 | 是否复制代码 | **否**。仅阅读官方文档与源码理解机制后自行设计数据结构与算法 |
 | 为何不复制 | AGPL-3.0 具有传染性，复制其源码会使本项目整体被 AGPL 覆盖并产生额外义务；本项目刻意规避 |
 
@@ -104,7 +107,7 @@
 | 许可证 | **MIT** |
 | 作者 | pinganbbOvO |
 
-| # | 原项目模块 | 借鉴内容 | 本项目独立实现 |
+| # | 原项目模块 | 借鉴内容 | 实现位置（本项目独立实现） |
 |---|---|---|---|
 | 1 | `role.js`（角色卡） | 三段式角色卡 + **lint 自检**（没写说话方式、出现"助手/客服"字样、超长段落均报警） | `app/worldbook/engine.py` → `WorldbookEngine.lint()` |
 | 2 | `memory.js`（记忆账本） | 按类存账 + **每类容量上限 FIFO 淘汰**（facts 60 / traits 40 / topics 20 / pending 12） | `app/memory/extractor.py` → `KIND_CAPS` 淘汰 |
@@ -122,7 +125,7 @@
 | 仓库 | `deepseek-ai/DeepInfer`、`deepseek-ai/deepseek-recipe` |
 | 许可证 | DeepInfer 标注为 **Apache-2.0**；`deepseek-recipe` 的许可未在本地核实，故本项目**未使用其任何代码** |
 | 借鉴内容 | ① 确定性采样（同输入必得同输出，便于复现与排查）；② API 协议与 Token 序列严格对齐的思路 |
-| 本项目落地 | `scripts/evaluate.py --deterministic`（贪心 + 固定种子）；`scripts/check_tokens.py`（训练/服务提示同构检查） |
+| 实现位置 | `scripts/evaluate.py --deterministic`（贪心 + 固定种子）；`scripts/check_tokens.py`（训练/服务提示同构检查） |
 | 是否复制代码 | **否** |
 | 为何不直接使用 | ① 它是**推理**框架，本项目需要训练链路（用 mlx-lm）；② 硬件仅支持 NVIDIA SM100 / 昇腾 950，Apple Silicon 无法运行；③ 仅支持其自家模型，不支持 Qwen 基座 |
 

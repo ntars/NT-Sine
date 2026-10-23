@@ -44,6 +44,11 @@ _REFUSAL_LINES = [
 
 _AGREE_MARKS = ["对对对", "你说得对", "是的是的", "嗯嗯嗯", "好听", "都听你的"]
 
+# 刻意重复的强调标记：她真急了会主动把同一句说两遍，这是情绪不是复读。
+# 没有这层豁免，「我说了，不行。不行。」会被打回重写，越写越平。
+_EMPHASIS_MARKS = ["我说了", "我说过", "再说一遍", "听见没有", "不许", "就是不行",
+                   "不行。不行", "真的不行", "最后一遍"]
+
 
 @dataclass
 class FilterResult:
@@ -119,11 +124,13 @@ def filter_output(text: str, history: list[str] | None = None,
         text = re.sub(r"\s{2,}", " ", text).strip()
 
     # 4. 复读：与最近 3 轮高度重复 → 要求重生成一次
-    for h in history[:3]:
-        if h and _ngram_overlap(text, h) > 0.6:
-            result.triggered.append("复读")
-            result.need_retry = True
-            break
+    #    带强调标记的刻意重复放行，否则她连"把话说重一点"都做不到
+    if not any(m in text for m in _EMPHASIS_MARKS):
+        for h in history[:3]:
+            if h and _ngram_overlap(text, h) > 0.6:
+                result.triggered.append("复读")
+                result.need_retry = True
+                break
 
     # 5. 客服腔 → 替换
     for p in _SERVICE_PATTERNS:

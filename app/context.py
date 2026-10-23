@@ -92,8 +92,9 @@ def build_messages(user_text: str, assembly: Assembly, emotion: EmotionEngine,
         system_parts.append(f"【关系阶段】{stage['name']}\n{stage_card}")
 
     messages: list[dict] = [{"role": "system", "content": "\n\n".join(system_parts)}]
-    # 最近 N 轮原始对话（滑动窗口）
-    for m in history[-int(SETTINGS["context"]["recent_turns"]):]:
+    # 最近 N 轮原始对话（滑动窗口）：一轮 = 用户一句 + 她一句，所以是 2N 条。
+    # 以前这里按 N 条切，等于把上游取到的 2N 条又砍成一半（实际只剩约 5 轮）。
+    for m in history[-int(SETTINGS["context"]["recent_turns"]) * 2:]:
         messages.append({"role": m["role"], "content": m["content"]})
 
     # L3 情感投影 + 冲突：拼在最后一条 user 消息尾部（§4.5.2 深度 0 的"最响位置"）

@@ -30,7 +30,8 @@ class ProactiveGate:
         self._today_count = 0
         self._today_key = self._day_key()
         self._last_sent_ts = 0.0
-        self._last_refused_ts = 0.0  # 上次主动但没被回复
+        self._last_refused_ts = 0.0  # 上次主动但没被回复的时刻
+        self._pending = False        # 上一条主动还没等到回应
 
     @staticmethod
     def _day_key() -> int:
@@ -58,8 +59,7 @@ class ProactiveGate:
         if gap_h < float(self.cfg["min_gap_h"]):
             return False, "距上次对话太近（太黏）"
         if self._last_refused_ts and (now - self._last_refused_ts) / 3600 < float(self.cfg["retry_gap_h"]):
-            if gap_h < float(self.cfg["retry_gap_h"]):
-                return False, "上次主动未获回复，冷却中"
+            return False, "上次主动未获回复，冷却中"
         return True, f"间隔 {gap_h:.1f} 小时，可以开口"
 
     # ── 闸门二：说什么（话题优先级，方案 §11.1）──
@@ -96,6 +96,13 @@ class ProactiveGate:
     # ── 总判定 ──
     def check(self, last_interaction_ts: float | None,
               memories: list[dict], timeline: list[dict]) -> ProactiveDecision:
+        # 上一条主动发出后对方一直没回 → 先记一次"未获回复"，再走闸门。
+        # 标记只记一次：每次检查都刷新冷却时间，冷却就永远不会过期。
+        if self._pending and (last_interaction_ts is None or last_interaction_ts < self._last_sent_ts):
+            self.mark_unanswered()
+        elif self._pending:
+            self._pending = False   # 已经回了，解除待回应状态
+
         ok, reason = self.gate_time(last_interaction_ts)
         if not ok:
             return ProactiveDecision(False, reason)
@@ -106,8 +113,10 @@ class ProactiveGate:
         message = self.compose(topic_type, anchor)
         self._today_count += 1
         self._last_sent_ts = time.time()
+        self._pending = True          # 等她这次有没有回
         return ProactiveDecision(True, f"话题:{topic_type}", message)
 
     def mark_unanswered(self) -> None:
         """主动消息未获回复 → 进入冷却，不再连发。"""
         self._last_refused_ts = time.time()
+        self._pending = False

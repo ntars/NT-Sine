@@ -22,8 +22,12 @@ class Orchestrator:
     def __init__(self):
         self._last_reply_ts = 0.0
 
-    def plan(self, user_text: str) -> TurnPlan:
-        """给出本轮的延迟建议。档位由世界书引擎统一判定，避免两处逻辑漂移。"""
+    def plan(self, user_text: str, scene_mode: str = "normal") -> TurnPlan:
+        """给出本轮的延迟建议。档位以世界书扫描结果为准，这里只做透传。
+
+        以前这里写死 "normal"、响应里却用扫描结果，同一个字段两个真源，
+        前端拿到的档位和实际注入的卡会不一致。
+        """
         hour = time.localtime().tm_hour
         is_night = 0 <= hour < 6
         base = random.uniform(1.2, 3.0)
@@ -32,4 +36,4 @@ class Orchestrator:
         if len(user_text) >= 40:
             base += 1.0  # 长消息多"想一会儿"
         self._last_reply_ts = time.time()
-        return TurnPlan(scene_mode="normal", delay_s=round(base, 1))
+        return TurnPlan(scene_mode=scene_mode, delay_s=round(base, 1))

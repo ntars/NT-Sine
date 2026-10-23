@@ -479,7 +479,7 @@ data_train/train.jsonl + data_train/valid.jsonl
 | LoRA 层数 | 16 | 基座共 36 层，覆盖末 16 层，可训练参数 7.34M（0.182%） |
 | rank | 8 | 语气层微调的常规取值 |
 | batch size | 1 | 16GB 内存下 batch 2 会触发系统内存回收 |
-| max seq | 1024 | 实测样本 p100 为 894 token，保留 130 余量以避免尾部截断 |
+| max seq | 1024 | 二轮数据集实测 p100 = 894 token（p50 770 / p95 846），保留 130 余量避免尾部截断 |
 | learning rate | 1e-4 | 4B 基座实测收敛平稳 |
 | save-every | 500 | 兼顾磁盘写入频率与崩溃损失 |
 | 其他 | mask-prompt、grad-checkpoint | 仅对回复计算损失；4B 必须启用梯度检查点 |
@@ -494,10 +494,10 @@ data_train/train.jsonl + data_train/valid.jsonl
 
 ```bash
 # 构建数据集
-python scripts/build_dataset.py --count 300 --max-seq 896
+python scripts/build_dataset.py --count 900 --max-seq 894
 
-# 启动训练（默认 2000 步）
-bash scripts/train_sine.sh
+# 启动训练（默认 2000 步；二轮扩数据后为 3200 步）
+ITERS=3200 bash scripts/train_sine.sh
 
 # 脱离进程组启动长任务
 python -c "import subprocess; log=open('runs/train_sine.log','a'); \
@@ -540,7 +540,7 @@ stdin=subprocess.DEVNULL, start_new_session=True)"
 
 | 套件 | 数量 | 覆盖范围 |
 |---|---|---|
-| `pytest tests/ -q` | **45 项** | 世界书 7 项（token 估算、分层加载、常驻层、触发、递归限制、预算、整词开关）；记忆检索 8 项；日记 10 项（解析、角度、幂等、淘汰）；L4 互斥与日记结构 4 项；关系阶段 7 项（三轴判定、逐级推进、天数去重、注入）；边界与交互 9 项（红线判定、误判豁免、通道交互、投影） |
+| `pytest tests/ -q` | **59 项** | 世界书 7 项（token 估算、分层加载、常驻层、触发、递归限制、预算、整词开关）；记忆检索 8 项；日记 10 项（解析、角度、幂等、淘汰）；L4 互斥与日记结构 4 项；关系阶段 7 项（三轴判定、逐级推进、天数去重、注入）；边界与交互 9 项（红线判定、误判豁免、通道交互、投影）；阶段三缺陷修复 14 项（分条下限 2、深夜变速 1、主动冷却 3、档位透传 2、窗口语义 2、复读豁免 2、否定与程度 2） |
 | `scripts/smoke_test.py` | **22 项** | 世界书 11 项、过滤器 5 项、节奏 4 项、记忆 2 项；不依赖模型，代码变更后优先执行 |
 | `scripts/e2e_check.py` | 4 条探针 | 完整链路（世界书→情感→生成→过滤→节奏→落库），强制使用临时数据库 |
 | `scripts/boundary_check.py` | 6 条探针 | 病娇阶段越界检测 |
@@ -600,14 +600,17 @@ NT-Sine/
 
 | 序号 | 问题 | 影响 | 位置 |
 |---|---|---|---|
-| 1 | `segment_min: 8` 被读取但未参与计算，实际仅 25 字上限生效 | 可能出现 1–2 字的极短条 | `app/output/rhythm.py:35` |
-| 2 | 深夜放慢系数未在接口链路生效：调用未传入 `hour`，夜间判定恒为假 | 深夜输出不变慢 | `app/main.py:168`、`app/output/rhythm.py:91` |
-| 3 | 主动消息的 6 小时冷却分支不触发：`mark_unanswered()` 无调用点 | 该约束实际不生效 | `app/proactive/gate.py:60` |
-| 4 | `orchestrator.plan()` 的 `scene_mode` 字段硬编码为 `normal`，实际档位由世界书扫描另行返回 | 该字段无实际意义 | `app/orchestrator.py:35` |
-| 5 | `recent_turns: 10` 实际为 10 条消息（约 5 轮），与配置语义不符 | 上下文长度少于预期 | `app/context.py:87` |
-| 6 | 运行时过滤器不含「修辞性重复」豁免，4-gram 重叠超过 60% 即触发重生成 | 刻意重复可能被误判 | `app/output/filters.py:121` |
-| 7 | 模型存在约 8% 概率返回空内容（实测 1/12） | 已转换为 `GenerationError` 并回落兜底句，不产生 500 错误 | `app/generation/client.py:64` |
-| 8 | 情感信号抽取基于词典命中，非语义理解 | 复杂表达可能漏判 | `app/emotion/engine.py:20` |
+| 1 | ~~`segment_min: 8` 被读取但未参与计算~~ **已修复**：短条先攒着并在下一条，末尾余条并回上一条 | 不会再出现 1–2 字碎条 | `app/output/rhythm.py` |
+| 2 | ~~深夜放慢系数未在接口链路生效~~ **已修复**：新增 `plan_delivery_now()` 自动取当前小时 | 0–6 点打字时长约 1.6 倍 | `app/output/rhythm.py`、`app/main.py` |
+| 3 | ~~主动消息 6 小时冷却分支不触发~~ **已修复**：`check()` 发现未被回应即调用 `mark_unanswered()`，并用待回应标记防止冷却被反复刷新 | 未获回应最多补一句就停 | `app/proactive/gate.py` |
+| 4 | ~~`orchestrator.plan()` 的档位硬编码~~ **已修复**：档位由世界书扫描结果透传，响应与注入同源 | 档位字段可信 | `app/orchestrator.py`、`app/main.py` |
+| 5 | ~~`recent_turns: 10` 实际只取 10 条消息~~ **已修复**：新增 `recent_turns()`，窗口按轮计（10 轮 = 20 条），`context.py` 同步按 2N 取 | 上下文恢复到 10 轮 | `app/memory/store.py`、`app/context.py` |
+| 6 | ~~过滤器不含修辞性重复豁免~~ **已修复**：带强调标记的刻意重复放行 | 她能把话说重，不被误判复读 | `app/output/filters.py` |
+| 7 | ~~情感词典漏收口语诉苦词、不处理否定与程度~~ **已修复**：补词典 + 否定词反转 + 程度副词加权 | 「不太开心」判负、「特别难过」权重更高 | `app/emotion/engine.py` |
+| 8 | 模型存在约 8% 概率返回空内容（实测 1/12） | 已转换为 `GenerationError` 并回落兜底句，不产生 500 错误 | `app/generation/client.py` |
+| 9 | 情感信号抽取基于词典与规则，非语义理解 | 反讽、长段落里的隐含情绪仍可能漏判 | `app/emotion/engine.py` |
+
+剩余未修项：2 条（序号 8、9），均为模型侧与词典法的固有边界，不打算用更多规则去追。
 
 ---
 

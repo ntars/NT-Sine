@@ -89,6 +89,14 @@ class MemoryStore:
             ).fetchall()
         return [{"role": r, "content": c, "ts": t} for r, c, t in reversed(rows)]
 
+    def recent_turns(self, turns: int) -> list[dict]:
+        """最近 n 轮对话（一轮 = 用户一句 + 她一句，最多 2n 条消息）。
+
+        为什么按"轮"而不是按"条"：上下文窗口的语义是"最近聊了几轮"，
+        按条数写死 20 会让配置里的 recent_turns 变成没人读的死参数。
+        """
+        return self.recent_messages(max(1, int(turns)) * 2)
+
     def last_interaction_ts(self) -> float | None:
         with self._lock:
             row = self._conn.execute(

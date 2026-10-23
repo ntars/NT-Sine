@@ -24,7 +24,7 @@ from app.memory.extractor import MemoryExtractor, build_profile
 from app.memory.store import MemoryStore
 from app.orchestrator import Orchestrator
 from app.output.filters import filter_output
-from app.output.rhythm import plan_delivery
+from app.output.rhythm import plan_delivery_now
 from app.proactive.gate import ProactiveGate
 from app.worldbook.engine import WorldbookEngine
 
@@ -125,21 +125,20 @@ def _get_state() -> NTState:
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
-    """一轮完整对话：调度 → 情感 → 记忆/世界书 → 生成 → 过滤 → 节奏 → 落库。"""
+    """一轮完整对话：记忆/世界书 → 调度 → 生成 → 过滤 → 情感 → 节奏 → 落库。"""
     state = _get_state()
     user_text = req.message.strip()
 
-    # 1. 调度层
-    turn = state.orchestrator.plan(user_text)
-
-    # 2. 情感引擎先更新（本轮回复会带着最新状态）
-    # 3. 记忆层：取滑动窗口 + 世界书扫描
-    recent = state.store.recent_messages(20)
+    # 1. 记忆层：取滑动窗口（单位是"轮"）+ 世界书扫描
+    recent = state.store.recent_turns(int(SETTINGS["context"]["recent_turns"]))
     history_texts = [m["content"] for m in recent if m["role"] == "user"]
     degraded = state.emotion.state.degraded_turns > 0
     assembly = state.worldbook.scan(user_text, history_texts, degraded=degraded)
 
-    # 4. 拼上下文并调用生成层
+    # 2. 调度层：延迟建议 + 档位透传（档位只有一个真源：扫描结果）
+    turn = state.orchestrator.plan(user_text, assembly.scene_mode)
+
+    # 3. 拼上下文并调用生成层
     messages = build_messages(user_text, assembly, state.emotion, state.store, recent)
     gen_failed = False
     try:
@@ -150,7 +149,7 @@ def chat(req: ChatRequest) -> ChatResponse:
         reply = "……我有点累，先不说了。"
         gen_failed = True
 
-    # 5. 输出过滤（顺序不可反）；复读/跪舔最多重生成一次
+    # 4. 输出过滤（顺序不可反）；复读/跪舔最多重生成一次
     history_replies = [m["content"] for m in recent if m["role"] == "assistant"]
     result = filter_output(reply, history=history_replies)
     if result.need_retry and not result.blocked:
@@ -161,20 +160,20 @@ def chat(req: ChatRequest) -> ChatResponse:
             pass
     state.emotion.mark_degraded(result.need_retry and not result.blocked)
 
-    # 6. 情感状态随本轮更新（用过滤后的文本，避免脏输出影响状态）
+    # 5. 情感状态随本轮更新（用过滤后的文本，避免脏输出影响状态）
     state.emotion.update(user_text, result.text)
 
-    # 7. 拟人化节奏
-    hour_segments = plan_delivery(result.text, mood=state.emotion.state.mood)
+    # 6. 拟人化节奏（自带当前小时，深夜才会变速）
+    hour_segments = plan_delivery_now(result.text, mood=state.emotion.state.mood)
 
-    # 8. 落库（原始对话）+ 每 3-5 轮异步抽取记忆
+    # 7. 落库（原始对话）+ 每 3-5 轮异步抽取记忆
     state.store.add_message("user", user_text)
     # 生成失败时的兜底句不写进历史：否则下一轮"复读"过滤器会把它当重复，
     # 兜底→判复读→再兜底，形成死循环（端到端测试实测到过）
     if not gen_failed:
         state.store.add_message("assistant", result.text)
     state.turn_count += 1
-    recent2 = state.store.recent_messages(20)
+    recent2 = state.store.recent_turns(int(SETTINGS["context"]["recent_turns"]))
     try:
         state.extractor.maybe_extract(recent2)
         build_profile(state.store)
@@ -185,7 +184,7 @@ def chat(req: ChatRequest) -> ChatResponse:
         reply=result.text,
         segments=[s.__dict__ for s in hour_segments],
         delay_s=turn.delay_s,
-        scene_mode=assembly.scene_mode,
+        scene_mode=turn.scene_mode,
         worldbook_tokens=assembly.total_tokens,
         filtered=result.triggered,
     )
@@ -207,7 +206,9 @@ def get_state() -> dict:
 def debug_worldbook(message: str) -> dict:
     """世界书调试台：查看一次扫描激活了哪些条目、预算用了多少。"""
     state = _get_state()
-    history = [m["content"] for m in state.store.recent_messages(20) if m["role"] == "user"]
+    history = [m["content"] for m in
+               state.store.recent_turns(int(SETTINGS["context"]["recent_turns"]))
+               if m["role"] == "user"]
     assembly = state.worldbook.scan(message, history)
     return {
         "scene_mode": assembly.scene_mode,
