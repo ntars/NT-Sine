@@ -108,12 +108,18 @@ def test_proactive_cooldown_expires():
 
 
 def test_proactive_auto_marks_unanswered():
-    """check() 发现上一条主动无人回应时，必须自己记一次未回复。"""
+    """check() 发现上一条主动无人回应时，必须自己记一次未回复。
+
+    时刻一律用 _afternoon_ts() 给进去，不拿 time.time()：闸门一里"深夜禁主动"
+    排在最前，若跑这条用例时正好是凌晨，返回的理由会是深夜而非冷却——
+    测试结论随机器时钟摇摆，等于没测。
+    """
+    now = _afternoon_ts()
     gate = ProactiveGate()
     gate.cfg = dict(gate.cfg, abandon_rate=0.0)   # 关掉随机放弃，只看冷却
-    gate._last_sent_ts = time.time() - 3600
+    gate._last_sent_ts = now - 3600
     gate._pending = True
-    decision = gate.check(time.time() - 10 * 3600, [], [])
+    decision = gate.check(now - 10 * 3600, [], [], now=now)
     assert not decision.should
     assert "冷却" in decision.reason, decision.reason
     assert not gate._pending, "未回复应清掉待回应标记，避免每次检查都刷新冷却"

@@ -197,24 +197,32 @@ class EmotionEngine:
         if delta > 0:
             s.affection = min(100.0, s.affection + min(cfg["affection_max_gain"], delta * 12))
         elif delta < 0:
-            prev_trust = s.trust
             s.affection = max(0.0, s.affection + max(-1.0, delta * 8))
-            # 通道交互（设计思路参考 fenghua2006/emotion-engine 的"通道间调制"，
-            # 本项目独立实现）：信任被明显消耗时，当下情绪同步走低——
-            # 被辜负的人不会只是"信任降了"而"心情没事"。
-            if prev_trust - s.trust > 3.0:
-                s.mood = max(-1.0, s.mood - 0.05)
             # 越在意越疼：高好感下同一个负面事件，情绪跌得更深（幅度小，可解释）
             if s.affection >= 70:
                 s.mood = max(-1.0, s.mood + delta * 0.3)
 
         # 信任：下降快（-≤8）、上升慢（+≤1.5）
+        prev_trust = s.trust
         if delta < 0:
             s.trust = max(0.0, s.trust + max(-cfg["trust_max_loss"], delta * 20))
         elif delta > 0 and not conflict:
             s.trust = min(100.0, s.trust + min(cfg["trust_max_gain"], delta * 6))
 
-        # 精力：随本次会话时长衰减
+        # 通道交互（设计思路参考 fenghua2006/emotion-engine 的"通道间调制"，
+        # 本项目独立实现）：信任被明显消耗时，当下情绪同步走低——
+        # 被辜负的人不会只是"信任降了"而"心情没事"。
+        # 注意必须放在 s.trust 更新之后：早前写在更新之前，prev_trust 与 s.trust
+        # 中间没有任何改动，差值恒为 0，这条通路从来没生效过。
+        if prev_trust - s.trust > 3.0:
+            s.mood = max(-1.0, s.mood - 0.05)
+
+        # 精力：按"这次会话已经聊了多久"衰减，但换个会话就回满。
+        # session_start 只在进程启动时初始化，若不做这层重置，服务连跑几小时后
+        # energy 恒为 0，之后每一轮都注入"你困了"——隔夜回来也还是困的，明显穿帮。
+        if s.last_turn_ts > 0 and (now - s.last_turn_ts) > 2 * 3600:
+            s.session_start = now
+            s.energy = 80.0
         session_hours = (now - s.session_start) / 3600
         base_energy = 80.0 - session_hours * cfg["energy_decay_per_hour"]
         s.energy = max(0.0, min(100.0, base_energy))

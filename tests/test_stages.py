@@ -9,6 +9,7 @@
 
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -104,3 +105,45 @@ def test_stage_injected_into_system_prompt():
         assert e.stage_card() in system
         # L3 情绪投影仍在最后一条 user 消息尾部（分层注入，互不冲突）
         assert "你此刻的状态" in msgs[-1]["content"]
+
+
+# ── 通道交互与精力恢复（2026-10-24 补）──
+def test_trust_loss_pulls_mood_down():
+    """信任被明显消耗时，当下情绪要同步走低（通道交互）。
+
+    早前这行判断写在 s.trust 更新之前：prev_trust 记下后中间没有任何改动，
+    差值恒为 0，这条通路从来没触发过。这里用「你很烦，滚」钉住它——
+    该输入让信任掉 4 点，情绪应在正常衰减之外再被压 0.05。
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        e = _engine(tmp)
+        e.state.mood = 0.5
+        e.state.affection = 40.0
+        e.state.trust = 40.0
+        e.update("你很烦，滚")
+
+        assert e.state.trust < 36.5, f"信任应掉 4 点，实际 {e.state.trust}"
+        # 只按 delta 走的话 mood 会停在 0.3325；接通通道交互才是 0.2825
+        assert e.state.mood < 0.31, f"信任掉 4 点却没压情绪，通道交互没生效：{e.state.mood}"
+        assert abs(e.state.mood - 0.2825) < 0.005, e.state.mood
+
+
+def test_energy_recovers_after_long_gap():
+    """隔了几小时再聊，精力要回满；连着聊才继续衰减。
+
+    精力原本只按 session_start 到现在的小时数算，而 session_start 只在进程启动
+    时初始化——服务连跑几小时后 energy 恒为 0，之后每轮都注入"你困了"，
+    隔夜回来也还是困的。
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        e = _engine(tmp)
+        e.state.session_start = time.time() - 6 * 3600
+        e.state.energy = 0.0
+        e.state.last_turn_ts = time.time() - 3 * 3600   # 上一轮是三小时前
+        e.update("在吗")
+        assert e.state.energy > 70, f"隔了三小时再聊，精力该回满，实际 {e.state.energy}"
+
+        e.state.session_start = time.time() - 3 * 3600
+        e.state.last_turn_ts = time.time() - 60          # 刚聊过，算同一场会话
+        e.update("在吗")
+        assert e.state.energy < 40, f"同一场会话里聊了三小时，精力该降下来，实际 {e.state.energy}"

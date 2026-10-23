@@ -44,16 +44,17 @@ class ProactiveGate:
         t = time.localtime(time.time() if ts is None else ts)
         return t.tm_year * 1000 + t.tm_yday
 
-    def _roll_day(self) -> None:
-        key = self._day_key()
+    def _roll_day(self, now: float | None = None) -> None:
+        """跨过本地零点就把"今天发了几次"清零。now 由调用方传，便于测试固定日期。"""
+        key = self._day_key(now)
         if key != self._today_key:
             self._today_key = key
             self._today_count = 0
 
     # ── 闸门一：该不该开口 ──
     def gate_time(self, last_interaction_ts: float | None, now: float | None = None) -> tuple[bool, str]:
-        self._roll_day()
         now = now or time.time()
+        self._roll_day(now)
         hour = time.localtime(now).tm_hour
         q_start, q_end = self.cfg["night_quiet"]
         if q_start <= hour < q_end:
@@ -106,15 +107,23 @@ class ProactiveGate:
 
     # ── 总判定 ──
     def check(self, last_interaction_ts: float | None,
-              memories: list[dict], timeline: list[dict]) -> ProactiveDecision:
+              memories: list[dict], timeline: list[dict],
+              now: float | None = None) -> ProactiveDecision:
+        """now 只在测试里显式传入，线上沿用当前时刻。
+
+        不能省掉这个参数：闸门一里"深夜禁主动"排在最前面，若测试拿真实时间戳跑，
+        结论就随"跑测试时是几点"变化——下午跑通过、凌晨跑失败。机器时钟不该
+        决定测试结果，所以时刻由调用方给进来，默认值保持线上原行为。
+        """
+        now = now or time.time()
         # 上一条主动发出后对方一直没回 → 先记一次"未获回复"，再走闸门。
         # 标记只记一次：每次检查都刷新冷却时间，冷却就永远不会过期。
         if self._pending and (last_interaction_ts is None or last_interaction_ts < self._last_sent_ts):
-            self.mark_unanswered()
+            self.mark_unanswered(now)
         elif self._pending:
             self._pending = False   # 已经回了，解除待回应状态
 
-        ok, reason = self.gate_time(last_interaction_ts)
+        ok, reason = self.gate_time(last_interaction_ts, now)
         if not ok:
             return ProactiveDecision(False, reason)
         # 30-40% 触发被"她自己觉得算了"掉——允许她沉默，才是人（方案 §11.3）
@@ -123,11 +132,11 @@ class ProactiveGate:
         topic_type, anchor = self.pick_topic(memories, timeline)
         message = self.compose(topic_type, anchor)
         self._today_count += 1
-        self._last_sent_ts = time.time()
+        self._last_sent_ts = now
         self._pending = True          # 等她这次有没有回
         return ProactiveDecision(True, f"话题:{topic_type}", message)
 
-    def mark_unanswered(self) -> None:
+    def mark_unanswered(self, now: float | None = None) -> None:
         """主动消息未获回复 → 进入冷却，不再连发。"""
-        self._last_refused_ts = time.time()
+        self._last_refused_ts = now or time.time()
         self._pending = False
