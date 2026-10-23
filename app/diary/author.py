@@ -83,10 +83,10 @@ def write_diary(generator: Generator, store: MemoryStore,
                 memory_text: str = "", today: date | None = None) -> dict | None:
     """生成一篇日记并落 timeline。失败返回 None（绝不抛错打扰主链路）。"""
     d = today or date.today()
-    # 幂等：今天已写过就不再写
-    for t in store.recent_timeline(20):
-        if t.get("mood_tag", "").startswith("diary") and t["title"].startswith(d.isoformat()):
-            return None
+    # 幂等：今天已写过就不再写。查的是全表里「这一天 + 日记」，
+    # 不靠"最近 N 条时间线"猜——事件一多会把窗口塞满，今天那篇被挤出去。
+    if store.has_diary_on(d.isoformat()):
+        return None
     angle = pick_angle(d)
     messages = build_diary_prompt(angle, memory_text, _recent_diary_text(store))
     try:
@@ -104,10 +104,9 @@ def write_diary(generator: Generator, store: MemoryStore,
 
 
 def _recent_diary_text(store: MemoryStore, limit: int = 3) -> str:
-    lines = []
-    for t in store.recent_timeline(20):
-        if t.get("mood_tag", "").startswith("diary"):
-            lines.append(t["detail"])
-        if len(lines) >= limit:
-            break
-    return "\n".join(lines)
+    """最近几篇日记正文（旧 → 新），供她"接着自己的话往下写"。
+
+    必须按 diary 标签精确取：`recent_timeline` 是固定条数窗口，事件一多
+    日记就被挤出窗口，而且它返回旧→新顺序，取前几条拿到的是最早那几篇。
+    """
+    return "\n".join(t["detail"] for t in store.recent_diaries(limit) if t["detail"])

@@ -186,6 +186,34 @@ class MemoryStore:
             ).fetchall()
         return [{"ts": r[0], "title": r[1], "detail": r[2], "mood_tag": r[3]} for r in reversed(rows)]
 
+    def recent_diaries(self, limit: int = 3) -> list[dict]:
+        """最近几篇日记（旧 → 新）。
+
+        为什么不复用 recent_timeline：记忆抽取每 4 轮就落一条 event，
+        事件多起来会把固定条数的窗口塞满，日记被挤到窗口外。写日记时要参考
+        "刚写过什么"，按条数猜窗口必然漏，只能按内容精确筛（mood_tag 以 diary 开头）。
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT ts, title, detail, mood_tag FROM timeline "
+                "WHERE mood_tag LIKE 'diary%' ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{"ts": r[0], "title": r[1], "detail": r[2], "mood_tag": r[3]} for r in reversed(rows)]
+
+    def has_diary_on(self, day: str) -> bool:
+        """这一天写过日记没有（day 形如 2026-10-24）。
+
+        同上：不能靠"最近 N 条时间线里找今天"来判断幂等，事件一多就查不到，
+        同一天会写出第二篇。
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM timeline WHERE mood_tag LIKE 'diary%' AND title LIKE ? LIMIT 1",
+                (f"{day}%",),
+            ).fetchone()
+        return row is not None
+
     def set_profile(self, key: str, value: str) -> None:
         with self._lock:
             self._conn.execute(

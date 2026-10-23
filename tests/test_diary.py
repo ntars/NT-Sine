@@ -102,3 +102,81 @@ def test_new_kinds_recalled(tmp_path=None):
         hits = retrieve_relevant("最近总熬夜，顺便想养只猫", store)
         contents = " ".join(h["content"] for h in hits)
         assert "熬夜" in contents or "猫" in contents, hits
+
+
+# ── 取哪几篇 / 今天写过没有（2026-10-24 审计补）──
+def _seed_diaries(store, n: int) -> None:
+    for i in range(1, n + 1):
+        store.add_timeline(f"2026-10-{10 + i:02d} 第{i}篇", detail=f"日记正文{i}",
+                           mood_tag="diary")
+
+
+def test_recent_diary_text_takes_latest(tmp_path):
+    """喂给模型的必须是最近几篇，不是最老几篇。
+
+    角度轮换的意义就是「别跟刚写的重样」，喂最老的等于白轮换。
+    早前按 timeline 旧→新顺序取前 3 条，拿到的正是最早那三篇。
+    """
+    from app.diary.author import _recent_diary_text
+
+    store = MemoryStore(tmp_path / "d.db")
+    _seed_diaries(store, 6)
+    text = _recent_diary_text(store, limit=3)
+    assert "日记正文4" in text and "日记正文6" in text, text
+    assert "日记正文1" not in text, f"不该把最早那篇喂进去：{text}"
+
+
+def test_diary_idempotent_when_events_flood_window(tmp_path):
+    """事件很多时，同一天也不能写第二篇日记。
+
+    幂等判断原本靠 recent_timeline(20) 里找「今天」——记忆抽取每 4 轮就落一条
+    event，事件一多就把 20 条窗口塞满，今天的日记被挤出去，于是又写一篇。
+    """
+    store = MemoryStore(tmp_path / "d2.db")
+    today = date(2026, 10, 24)
+    store.add_timeline(f"{today.isoformat()} 已经写过", detail="写过了", mood_tag="diary")
+    for i in range(25):
+        store.add_timeline(f"他说的第{i}件事", mood_tag="event")
+
+    gen = FakeGenerator('{"title":"新的","text":"又写了一篇。","mood":"烦"}')
+    entry = write_diary(gen, store, memory_text="", today=today)
+    assert entry is None, "今天已经写过，不该再写"
+
+
+# ── 取哪几篇 / 今天写过没有（2026-10-24 审计补）──
+def _seed_diaries(store, n: int) -> None:
+    for i in range(1, n + 1):
+        store.add_timeline(f"2026-10-{10 + i:02d} 第{i}篇", detail=f"日记正文{i}",
+                           mood_tag="diary")
+
+
+def test_recent_diary_text_takes_latest(tmp_path):
+    """喂给模型的必须是最近几篇，不是最老几篇。
+
+    角度轮换的意义就是「别跟刚写的重样」，喂最老的等于白轮换。
+    早前按 timeline 旧→新顺序取前 3 条，拿到的正是最早那三篇。
+    """
+    from app.diary.author import _recent_diary_text
+
+    store = MemoryStore(tmp_path / "d.db")
+    _seed_diaries(store, 6)
+    text = _recent_diary_text(store, limit=3)
+    assert "日记正文4" in text and "日记正文6" in text, text
+    assert "日记正文1" not in text, f"不该把最早那篇喂进去：{text}"
+
+
+def test_diary_idempotent_when_events_flood_window(tmp_path):
+    """事件很多时，同一天也不能写第二篇日记。
+
+    幂等判断原本靠 recent_timeline(20) 里找「今天」——记忆抽取每 4 轮就落一条
+    event，事件一多就把 20 条窗口塞满，今天的日记被挤出去，于是又写一篇。
+    """
+    store = MemoryStore(tmp_path / "d2.db")
+    today = date(2026, 10, 24)
+    store.add_timeline(f"{today.isoformat()} 已经写过", detail="写过了", mood_tag="diary")
+    for i in range(25):
+        store.add_timeline(f"他说的第{i}件事", mood_tag="event")
+
+    gen = FakeGenerator('{"title":"新的","text":"又写了一篇。","mood":"烦"}')
+    entry = write_diary(gen, store, memory_text="", today=today)
+    assert entry is None, "今天已经写过，不该再写"

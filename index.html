@@ -119,7 +119,7 @@
     </div>
 
     <p class="hero__note">
-      五层架构已实现并通过 90 项回归测试与 22 项冒烟测试；台词库已扩至 900 条。已定位并修掉训练模板注入空思考块的缺陷，3200 步重训进行中。
+      五层架构已实现并通过 93 项回归测试与 22 项冒烟测试；台词库已扩至 900 条。已定位并修掉训练模板注入空思考块的缺陷，3200 步重训进行中。
     </p>
   </section>
 
@@ -372,7 +372,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8420
 
 <span class="cm"># 5. 验证</span>
 python scripts/smoke_test.py        <span class="cm"># 22 项，不依赖模型</span>
-python -m pytest tests/ -q          <span class="cm"># 90 项回归测试</span></pre>
+python -m pytest tests/ -q          <span class="cm"># 93 项回归测试</span></pre>
 
     <div class="sec__foot">
       <p>配置文件 <code>config/settings.yaml</code> 中 <code>ollama.base_url</code> 设为推理服务地址，不带 <code>/v1</code> 后缀（生成层自动拼接）。</p>
