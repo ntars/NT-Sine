@@ -79,7 +79,15 @@ def _split_segments(text: str, mood: float, max_segments: int) -> list[str]:
             s = s[seg_max:]
         if s.strip():
             final.append(s.strip())
-    return final[:max_segments]
+
+    # 条数上限：超出的并回最后一条，不能直接截掉。
+    # 原来是 final[:max_segments]，等于把她说的话吞掉一截——实测 108 字的回复
+    # 只吐出 84 字，前 4 条播完就没了，用户看到的是"话说一半"。
+    # 宁可最后一条长一点，也不能少说。
+    if len(final) > max_segments:
+        tail = "".join(final[max_segments - 1:])
+        final = final[:max_segments - 1] + [tail]
+    return final
 
 
 def re_split_sentences(text: str) -> list[str]:
