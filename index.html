@@ -3,8 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#06080c">
 <title>NT-Sine · 本地中文情感陪伴模型</title>
 <meta name="description" content="NT-Sine 是一个本地部署的中文情感陪伴模型。六层世界书、三层记忆、五维情感状态机、五阶段关系模型，全离线推理。">
+<link rel="manifest" href="pwa-manifest.json">
+<link rel="icon" type="image/png" href="./static/icons/icon-192.png">
+<link rel="icon" type="image/svg+xml" href="./static/icons/icon-squircle.svg">
+<link rel="apple-touch-icon" href="./static/icons/icon-192.png">
 <style>
   /* ── 设计变量 ── */
   :root {
@@ -96,11 +101,11 @@
     color: var(--text);
   }
   .brand-mark {
-    width: 9px;
-    height: 9px;
-    border-radius: 2px;
-    background: var(--accent);
-    box-shadow: 0 0 12px var(--accent);
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    display: block;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
   }
   .nav-links {
     display: flex;
@@ -487,7 +492,7 @@
 
 <header>
   <nav class="nav">
-    <div class="brand"><span class="brand-mark"></span>NT-SINE</div>
+    <div class="brand"><img class="brand-mark" src="./static/icons/icon-192.png" alt="NT-Sine" width="18" height="18">NT-SINE</div>
     <div class="nav-links">
       <a href="#position">定位</a>
       <a href="#mechanism">机制</a>

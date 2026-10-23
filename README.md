@@ -577,6 +577,10 @@ NT-Sine/
 ├── data_train/                 # 训练集与验证集（本地资产，不入库）
 ├── docs/
 │   └── 可采纳开源项目清单.md   # GitHub 扫描结果与评估
+├── static/
+│   └── icons/                  # 项目图标（矢量源 + 192/512/maskable 位图，与 NT-Xhex 同一品牌标记）
+├── index.html                  # 官网首页（单页静态，零外部依赖）
+├── pwa-manifest.json           # PWA 清单
 ├── scripts/                    # 训练、评测、运维脚本
 ├── tests/                      # 回归测试
 ├── runs/                       # 训练日志与适配器（不入库）
