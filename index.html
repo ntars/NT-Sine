@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NT-Sine · 本地中文情感陪伴模型</title>
+<meta name="description" content="NT-Sine 是一个本地部署的中文情感陪伴模型。六层世界书、三层记忆、五维情感状态机、五阶段关系模型，全离线推理。">
+<style>
+  /* ── 设计变量 ── */
+  :root {
+    --bg: #06080c;
+    --bg-soft: #0a0f16;
+    --bg-card: rgba(14, 22, 32, 0.72);
+    --line: rgba(110, 190, 240, 0.14);
+    --line-strong: rgba(110, 190, 240, 0.32);
+    --text: #d8e4f0;
+    --text-dim: #74869b;
+    --text-faint: #4c5a6b;
+    --accent: #2fe6d0;
+    --accent-2: #4d8dff;
+    --warn: #ffb454;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+    --maxw: 1120px;
+    --radius: 10px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.75;
+    letter-spacing: 0.01em;
+    overflow-x: hidden;
+  }
+
+  /* ── 背景层：网格 + 顶部辉光 ── */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(110, 190, 240, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(110, 190, 240, 0.045) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 78%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    top: -280px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 900px;
+    height: 560px;
+    background: radial-gradient(circle, rgba(47, 230, 208, 0.13), rgba(77, 141, 255, 0.07) 45%, transparent 72%);
+    filter: blur(48px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap { position: relative; z-index: 1; }
+
+  /* ── 导航 ── */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    backdrop-filter: blur(14px) saturate(140%);
+    background: rgba(6, 8, 12, 0.78);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav {
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    color: var(--text);
+  }
+  .brand-mark {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .nav-links {
+    display: flex;
+    gap: 22px;
+    font-size: 13px;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+  }
+  .nav-links a {
+    color: inherit;
+    text-decoration: none;
+    transition: color .2s;
+  }
+  .nav-links a:hover { color: var(--accent); }
+
+  /* ── 通用区块 ── */
+  section {
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 88px 24px;
+  }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 34px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.16em;
+  }
+  h2 {
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .sec-note {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 0.08em;
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin-bottom: 10px;
+  }
+  p { color: var(--text-dim); }
+  p strong { color: var(--text); font-weight: 600; }
+
+  /* ── 首屏 ── */
+  .hero {
+    padding: 108px 24px 84px;
+    max-width: var(--maxw);
+    margin: 0 auto;
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    border: 1px solid rgba(47, 230, 208, 0.28);
+    background: rgba(47, 230, 208, 0.06);
+    padding: 6px 12px;
+    border-radius: 4px;
+    margin-bottom: 26px;
+  }
+  h1 {
+    font-size: clamp(34px, 6vw, 60px);
+    line-height: 1.14;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 22px;
+  }
+  h1 .accent {
+    background: linear-gradient(96deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .lede {
+    font-size: 17px;
+    color: var(--text-dim);
+    max-width: 720px;
+    line-height: 1.85;
+  }
+  .lede strong { color: var(--text); }
+
+  /* ── 指标条 ── */
+  .metrics {
+    margin-top: 54px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .metric {
+    background: var(--bg-soft);
+    padding: 22px 20px;
+  }
+  .metric-val {
+    font-family: var(--mono);
+    font-size: 26px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: -0.01em;
+  }
+  .metric-val .unit {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-left: 4px;
+    font-weight: 400;
+  }
+  .metric-key {
+    font-size: 12px;
+    color: var(--text-faint);
+    margin-top: 6px;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── 卡片网格 ── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px;
+    transition: border-color .25s, box-shadow .25s, transform .25s;
+  }
+  .card:hover {
+    border-color: var(--line-strong);
+    box-shadow: 0 0 0 1px rgba(47, 230, 208, 0.08), 0 10px 34px -18px rgba(47, 230, 208, 0.4);
+    transform: translateY(-2px);
+  }
+  .card-idx {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.14em;
+    margin-bottom: 10px;
+    display: block;
+  }
+  .card p { font-size: 14px; line-height: 1.8; }
+  .card dl {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 14px;
+    font-size: 13px;
+  }
+  .card dt {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
+    padding-top: 2px;
+  }
+  .card dd { color: var(--text-dim); }
+
+  /* ── 表格 ── */
+  .table-wrap {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow-x: auto;
+    background: var(--bg-soft);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    min-width: 560px;
+  }
+  th, td {
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--text-faint);
+    font-weight: 500;
+    background: rgba(110, 190, 240, 0.03);
+    white-space: nowrap;
+  }
+  td { color: var(--text-dim); }
+  td strong, td.num { color: var(--text); }
+  td.num { font-family: var(--mono); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+
+  /* ── 架构图 ── */
+  .layers {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 32px;
+  }
+  .layer {
+    background: var(--bg-soft);
+    display: grid;
+    grid-template-columns: 88px 1fr;
+    gap: 18px;
+    padding: 18px 20px;
+    align-items: baseline;
+  }
+  .layer:hover { background: rgba(47, 230, 208, 0.03); }
+  .layer-id {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+  }
+  .layer-body strong {
+    display: block;
+    font-size: 14px;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .layer-body span { font-size: 13px; color: var(--text-dim); }
+
+  /* ── 流程 ── */
+  pre {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.95;
+    color: var(--text-dim);
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    overflow-x: auto;
+  }
+  pre .k { color: var(--accent); }
+  pre .c { color: var(--text-faint); }
+  pre .s { color: var(--accent-2); }
+
+  /* ── 双栏 ── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 760px) {
+    .two-col { grid-template-columns: 1fr; }
+    section { padding: 64px 20px; }
+    .hero { padding: 72px 20px 60px; }
+    .layer { grid-template-columns: 1fr; gap: 6px; }
+  }
+
+  /* ── 列表 ── */
+  .list { list-style: none; }
+  .list li {
+    position: relative;
+    padding-left: 18px;
+    font-size: 14px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  .list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 10px;
+    width: 5px;
+    height: 5px;
+    border-radius: 1px;
+    background: var(--accent);
+    opacity: 0.7;
+  }
+  .list li strong { color: var(--text); }
+
+  /* ── 限制清单 ── */
+  .limit {
+    display: grid;
+    grid-template-columns: 34px 1fr auto;
+    gap: 14px;
+    align-items: baseline;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 13.5px;
+  }
+  .limit:last-child { border-bottom: none; }
+  .limit-i {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--warn);
+  }
+  .limit-t { color: var(--text-dim); }
+  .limit-loc {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+  @media (max-width: 620px) {
+    .limit { grid-template-columns: 26px 1fr; }
+    .limit-loc { grid-column: 2; }
+  }
+
+  /* ── 版权块 ── */
+  .legal {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+  }
+  .legal .card p { font-size: 13px; }
+  .badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    padding: 3px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--line-strong);
+    color: var(--accent);
+    margin-top: 10px;
+  }
+
+  /* ── 页脚 ── */
+  footer {
+    border-top: 1px solid var(--line);
+    margin-top: 40px;
+    padding: 40px 24px 48px;
+  }
+  .foot-inner {
+    max-width: var(--maxw);
+    margin: 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 32px;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .foot-meta {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
+    line-height: 2;
+  }
+  .foot-meta a { color: var(--text-dim); text-decoration: none; }
+  .foot-meta a:hover { color: var(--accent); }
+  .power {
+    text-align: right;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    line-height: 2;
+  }
+  .power .icp {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+  }
+  @media (max-width: 620px) {
+    .power { text-align: left; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <nav class="nav">
+    <div class="brand"><span class="brand-mark"></span>NT-SINE</div>
+    <div class="nav-links">
+      <a href="#position">定位</a>
+      <a href="#mechanism">机制</a>
+      <a href="#architecture">架构</a>
+      <a href="#deploy">部署</a>
+      <a href="#training">训练</a>
+      <a href="#limits">限制</a>
+      <a href="#legal">版权</a>
+    </div>
+  </nav>
+</header>
+
+<main>
+
+<!-- 首屏 -->
+<div class="hero">
+  <div class="tag">LOCAL · OFFLINE · SINGLE CHARACTER</div>
+  <h1>本地部署的中文<br><span class="accent">情感陪伴模型</span></h1>
+  <p class="lede">
+    NT-Sine 以 Qwen3-4B 为基座，通过六层世界书约束人格、三层记忆持久化事实、
+    五维状态机描述情绪、五阶段模型表达关系演进。全部推理在本机完成，
+    <strong>对话数据不出设备</strong>。
+  </p>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-val">1600<span class="unit">token</span></div>
+      <div class="metric-key">上下文世界书预算上限</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">26<span class="unit">条</span></div>
+      <div class="metric-key">结构化世界书条目</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">5<span class="unit">阶段</span></div>
+      <div class="metric-key">关系演进模型</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">8<span class="unit">步</span></div>
+      <div class="metric-key">输出串联校验</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">45<span class="unit">项</span></div>
+      <div class="metric-key">回归测试</div>
+    </div>
+  </div>
+</div>
+
+<!-- 定位 -->
+<section id="position">
+  <div class="sec-head">
+    <span class="sec-num">01</span>
+    <h2>项目定位</h2>
+    <span class="sec-note">POSITIONING</span>
+  </div>
+
+  <p style="max-width:820px;margin-bottom:28px;">
+    本项目实现的是面向单一用户的中文情感陪伴对话系统。与三类常见系统的技术差异如下。
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>对照类型</th><th>技术差异</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>通用对话助手</strong></td>
+          <td>不承担指令执行与知识问答职能，输出目标是角色化情感回应，而非任务完成</td>
+        </tr>
+        <tr>
+          <td><strong>角色扮演前端</strong></td>
+          <td>包含模型微调、状态持久化与服务端逻辑，不仅是提示词外壳</td>
+        </tr>
+        <tr>
+          <td><strong>纯提示词方案</strong></td>
+          <td>人格、关系、记忆持久化至存储层，并对模型做语气层微调，不依赖单次提示维持一致性</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 style="margin-top:40px;">需要解决的四个技术问题</h3>
+  <div class="grid" style="margin-top:16px;">
+    <div class="card">
+      <span class="card-idx">01 / MEMORY</span>
+      <h3>长期记忆缺失</h3>
+      <p>上下文窗口溢出后丢失历史事实。</p>
+      <dl>
+        <dt>解决</dt><dd>三层记忆持久化至 SQLite，每轮按话题做关联召回</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <span class="card-idx">02 / PERSONA</span>
+      <h3>人设漂移</h3>
+      <p>多轮对话后退化为通用助手语气。</p>
+      <dl>
+        <dt>解决</dt><dd>六层世界书 + 八步过滤 + 训练期注入场景卡，三层独立防护</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <span class="card-idx">03 / RHYTHM</span>
+      <h3>输出机械化</h3>
+      <p>秒级整段回复，无停顿与节奏差异。</p>
+      <dl>
+        <dt>解决</dt><dd>分条输出、按字数计算打字时长、条间停顿与概率性长停顿</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <span class="card-idx">04 / RELATION</span>
+      <h3>关系状态静止</h3>
+      <p>长期交互后关系表达与初始状态无差异。</p>
+      <dl>
+        <dt>解决</dt><dd>五阶段关系模型，由互动天数、亲密值、信任值三轴共同判定</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- 核心机制 -->
+<section id="mechanism">
+  <div class="sec-head">
+    <span class="sec-num">02</span>
+    <h2>核心机制</h2>
+    <span class="sec-note">MECHANISM</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <span class="card-idx">M-01</span>
+      <h3>世界书：结构化事实注入</h3>
+      <p>角色设定与情境知识拆为六层条目，按关键词触发注入，非全量拼装。</p>
+      <dl>
+        <dt>层数</dt><dd>6 层（L1 角色、L2 画像、L3 情感、L4 场景、L5 时间、L6 边界）</dd>
+        <dt>预算</dt><dd>总上限 1600 token，分层独立预算，超限整条丢弃</dd>
+        <dt>约束</dt><dd>中文环境强制禁用「整词匹配」；仅 L4 允许递归，上限 3 步</dd>
+        <dt>互斥</dt><dd>L4 同刻仅保留优先级最高一张，防止场景语义混合</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <span class="card-idx">M-02</span>
+      <h3>记忆系统：三层存储与双路召回</h3>
+      <p>短期对话、中期结构化事实、长期里程碑分表存储；检索采用固定画像与关联召回并行。</p>
+      <dl>
+        <dt>结构</dt><dd>SQLite 四表（messages / memories / timeline / profile）</dd>
+        <dt>召回</dt><dd>滚动画像必带 + 2-gram 二元组关联召回（默认 4 条）</dd>
+        <dt>去重</dt><dd>同内容累加提及次数，不新增行</dd>
+        <dt>容量</dt><dd>七类上限，超限按时间从旧到新淘汰</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <span class="card-idx">M-03</span>
+      <h3>情感状态机：五维数值与冲突锁定</h3>
+      <p>五个连续变量描述角色状态，数值不直接进入上下文，转换为自然语言投影后注入。</p>
+      <dl>
+        <dt>维度</dt><dd>mood / affection / trust / energy / intimacy</dd>
+        <dt>限制</dt><dd>mood 单轮 ≤±0.15；affection 单轮 ≤+2；trust 降 8 升 1.5</dd>
+        <dt>冲突</dt><dd>命中冲突词后 mood 锁定负值，需致歉且 mood 回正才解除</dd>
+        <dt>交互</dt><dd>信任骤降牵动情绪；高好感放大负向事件跌幅</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <span class="card-idx">M-04</span>
+      <h3>关系阶段模型：三轴判定</h3>
+      <p>关系状态划分五阶段，由累计互动天数、亲密值、信任值共同决定，任一条件不满足即停留当前阶段。</p>
+      <dl>
+        <dt>阶段</dt><dd>冷淡 → 破冰 → 依赖 → 占有 → 病娇</dd>
+        <dt>防跃迁</dt><dd>天数按自然日去重；亲密仅由事件触发；信任双向门限；逐级不可跳跃</dd>
+        <dt>注入</dt><dd>阶段卡注入系统提示尾部，情感投影注入用户消息尾部</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <span class="card-idx">M-05</span>
+      <h3>输出过滤：八步串联校验</h3>
+      <p>每轮输出返回前经八项校验，按固定顺序执行，命中即按对应策略处理。</p>
+      <dl>
+        <dt>顺序</dt><dd>控制标签 → 硬性违规 → 设定暴露 → 旁白化 → 复读 → 客服腔 → 过度附和 → 长度超限</dd>
+        <dt>策略</dt><dd>剥离 / 角色内替换 / 裁剪 / 标记重生成（上限 1 次）</dd>
+        <dt>原则</dt><dd>拒绝在角色内完成，不输出系统层声明</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <span class="card-idx">M-06</span>
+      <h3>拟人化输出节奏</h3>
+      <p>将单次输出拆分为多条消息，为每条计算打字时长与停顿，模拟即时通讯输入节奏。</p>
+      <dl>
+        <dt>分条</dt><dd>单条上限 25 字，最多 4 条</dd>
+        <dt>速度</dt><dd>4–7 字/秒，首条不短于 0.8–2.0 秒</dd>
+        <dt>停顿</dt><dd>条间 0.6–2.5 秒；20% 概率延长至 3–9 秒</dd>
+        <dt>末条</dt><dd>停顿为 0，结束后不追加等待</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <span class="card-idx">M-07</span>
+      <h3>主动消息：三重闸门与放弃率</h3>
+      <p>后台循环周期性判断是否主动发起对话，通过后仍需通过概率放弃，规避固定频率行为。</p>
+      <dl>
+        <dt>闸门一</dt><dd>时段静默、当日次数、历史存在性、最小间隔</dd>
+        <dt>闸门二</dt><dd>话题优先级：承诺 → 待办 → 事件 → 时间线 → 环境场景</dd>
+        <dt>闸门三</dt><dd>单句、≤20 字、含具体锚点、禁用空开场</dd>
+        <dt>放弃率</dt><dd>35%</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <span class="card-idx">M-08</span>
+      <h3>日记子系统</h3>
+      <p>每日固定时段生成第一人称独白，使用独立系统提示，与主对话链路隔离。</p>
+      <dl>
+        <dt>时段</dt><dd>23:00–01:00，每 30 分钟检查</dd>
+        <dt>角度</dt><dd>9 类轮换，按一年中的第几天取模，同日稳定</dd>
+        <dt>规格</dt><dd>100–200 字，句号结尾，不使用语气助词</dd>
+        <dt>幂等</dt><dd>当日已存在则跳过</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <span class="card-idx">M-09</span>
+      <h3>微调策略：语气与事实解耦</h3>
+      <p>微调仅承担表达风格，事实性内容由世界书与记忆系统提供，两者互不覆盖。</p>
+      <dl>
+        <dt>训练输入</dt><dd>场景卡 + 关系阶段卡，与推理期注入结构一致</dd>
+        <dt>数据分层</dt><dd>按关系阶段构造，使关系演进成为模型能力</dd>
+        <dt>评测</dt><dd>贪心解码 + 固定种子，同输入同输出，差异可归因</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- 架构 -->
+<section id="architecture">
+  <div class="sec-head">
+    <span class="sec-num">03</span>
+    <h2>架构设计</h2>
+    <span class="sec-note">ARCHITECTURE</span>
+  </div>
+
+  <div class="layers">
+    <div class="layer">
+      <div class="layer-id">LAYER 5</div>
+      <div class="layer-body">
+        <strong>演进层（离线、人工触发）</strong>
+        <span>数据构造 → 阶段分层 → 手动 LoRA 训练 → 确定性评测 → 版本对比</span>
+      </div>
+    </div>
+    <div class="layer">
+      <div class="layer-id">LAYER 4</div>
+      <div class="layer-body">
+        <strong>生成层</strong>
+        <span>Qwen3-4B 融合模型 → 采样 → 八步过滤 → 节奏化输出</span>
+      </div>
+    </div>
+    <div class="layer">
+      <div class="layer-id">LAYER 3</div>
+      <div class="layer-body">
+        <strong>情感引擎</strong>
+        <span>五维状态机 + 五阶段关系模型 + 通道交互</span>
+      </div>
+    </div>
+    <div class="layer">
+      <div class="layer-id">LAYER 2</div>
+      <div class="layer-body">
+        <strong>记忆层</strong>
+        <span>滑动窗口 + SQLite 四表 + 六层世界书引擎</span>
+      </div>
+    </div>
+    <div class="layer">
+      <div class="layer-id">LAYER 1</div>
+      <div class="layer-body">
+        <strong>调度层</strong>
+        <span>场景档位判定 / 回复延迟 / 主动开口判断 / 回复长度决策</span>
+      </div>
+    </div>
+  </div>
+
+  <h3>单轮处理流程</h3>
+  <pre><span class="k">输入</span>
+  ├─ 01 写入 messages 表（短期记忆）
+  ├─ 02 场景档位判定  <span class="c">命中深度触发词且 ≤30 字 → deep（扫描 15 条）
+  │                   ≥40 字 → normal（8 条）；其余 → daily（6 条）</span>
+  ├─ 03 世界书扫描    <span class="c">关键词匹配 → 正则匹配 → L4 递归 → L4 互斥 → 预算裁剪 → 分层排序</span>
+  ├─ 04 记忆召回      <span class="c">滚动画像（必带）+ 2-gram 关联召回（≤4 条）</span>
+  ├─ 05 上下文拼装    <span class="c">系统提示 + 最近 10 条消息 + 本轮输入（尾部附情感投影）</span>
+  ├─ 06 模型生成      <span class="c">OpenAI 兼容接口，采样参数双写；失败回落角色兜底句</span>
+  ├─ 07 输出过滤      <span class="s">八步校验，命中复读或过度附和时重生成一次</span>
+  ├─ 08 节奏化        <span class="c">切句 → 分条 → 打字时长与条间停顿</span>
+  ├─ 09 情感更新      <span class="c">信号抽取 → 五维推进 → 通道交互 → 天数累计 → 冲突判定 → 持久化</span>
+  └─ 10 记忆抽取      <span class="c">每 4 轮一次，七类入库，超容量 FIFO 淘汰</span></pre>
+
+  <h3 style="margin-top:36px;">上下文预算分配</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>层</th><th>内容</th><th>预算</th><th>保留优先级</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>L1</td><td>角色锚点（常驻）</td><td class="num">350</td><td class="num">0</td></tr>
+        <tr><td>L6</td><td>边界规则（常驻）</td><td class="num">150</td><td class="num">1</td></tr>
+        <tr><td>L3</td><td>情感状态（动态）</td><td class="num">100</td><td class="num">2</td></tr>
+        <tr><td>—</td><td>未解决事项（动态）</td><td class="num">—</td><td class="num">3</td></tr>
+        <tr><td>L2</td><td>用户画像（常驻）</td><td class="num">180</td><td class="num">4</td></tr>
+        <tr><td>L4</td><td>场景卡直接命中（最多 1 张）</td><td class="num">500</td><td class="num">5</td></tr>
+        <tr><td>L5</td><td>当前场景（动态）</td><td class="num">200</td><td class="num">6</td></tr>
+        <tr><td>L4</td><td>递归引入的场景卡</td><td class="num">—</td><td class="num">7</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="margin-top:14px;font-size:13px;">
+    token 计算规则：汉字与全角符号计 1 token，西文按字符数除以 4 向上取整。采用高估策略，避免请求超限后被静默截断。
+  </p>
+</section>
+
+<!-- 部署 -->
+<section id="deploy">
+  <div class="sec-head">
+    <span class="sec-num">04</span>
+    <h2>部署与运行</h2>
+    <span class="sec-note">DEPLOYMENT</span>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <span class="card-idx">ENV</span>
+      <h3>环境要求</h3>
+      <ul class="list">
+        <li>macOS，Apple Silicon（M 系列）</li>
+        <li>统一内存 <strong>16GB</strong> 起</li>
+        <li>Python <strong>3.10</strong> 及以上</li>
+        <li>磁盘占用：基座约 2.3GB，融合模型约 2.3GB</li>
+      </ul>
+    </div>
+    <div class="card">
+      <span class="card-idx">STACK</span>
+      <h3>技术栈</h3>
+      <ul class="list">
+        <li>推理：<strong>MLX / mlx-lm</strong>（Apple Silicon 原生）</li>
+        <li>服务：<strong>FastAPI + Uvicorn</strong></li>
+        <li>存储：<strong>SQLite</strong> 单文件</li>
+        <li>基座：<strong>Qwen3-4B-Instruct-2507-4bit</strong>（Apache-2.0）</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="margin-top:32px;">启动流程</h3>
+  <pre><span class="c"># 1. 安装依赖</span>
+python3 -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -r requirements.txt
+
+<span class="c"># 2. 融合微调权重（必须融合后启动服务）</span>
+python -m mlx_lm fuse \
+  --model <span class="s">"Sine 大模型/基座模型/Qwen3-4B-Instruct-2507-4bit"</span> \
+  --adapter-path runs/sine-lora \
+  --save-path models/sine-fused
+
+<span class="c"># 3. 启动推理服务（端口 8081）</span>
+bash scripts/serve_mlx.sh models/sine-fused 8081
+
+<span class="c"># 4. 启动应用（端口 8420）</span>
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8420
+
+<span class="c"># 5. 验证</span>
+python scripts/smoke_test.py        <span class="c"># 22 项，不依赖模型</span>
+python -m pytest tests/ -q          <span class="c"># 45 项回归测试</span></pre>
+
+  <p style="margin-top:14px;font-size:13px;">
+    配置文件 <code style="font-family:var(--mono);color:var(--accent)">config/settings.yaml</code>
+    中 <code style="font-family:var(--mono);color:var(--accent)">ollama.base_url</code>
+    设为推理服务地址，不带 <code style="font-family:var(--mono);color:var(--accent)">/v1</code> 后缀。
+  </p>
+</section>
+
+<!-- 训练 -->
+<section id="training">
+  <div class="sec-head">
+    <span class="sec-num">05</span>
+    <h2>训练方法</h2>
+    <span class="sec-note">TRAINING</span>
+  </div>
+
+  <p style="max-width:820px;margin-bottom:24px;">
+    训练目标为使关系演进成为模型能力，而非提示词模拟。数据采用「场景 × 关系阶段」双层结构，
+    训练参数以稳定性优先。
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>参数</th><th>取值</th><th>依据</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>LoRA 层数</td><td class="num">16</td><td>基座共 36 层，覆盖末 16 层，可训练参数 7.34M（0.182%）</td></tr>
+        <tr><td>rank</td><td class="num">8</td><td>语气层微调常规取值</td></tr>
+        <tr><td>batch size</td><td class="num">1</td><td>16GB 内存下 batch 2 会触发系统内存回收</td></tr>
+        <tr><td>max seq</td><td class="num">1024</td><td>实测样本 p100 为 894 token，保留 130 余量避免尾部截断</td></tr>
+        <tr><td>learning rate</td><td class="num">1e-4</td><td>4B 基座实测收敛平稳</td></tr>
+        <tr><td>save-every</td><td class="num">500</td><td>兼顾磁盘写入频率与崩溃损失</td></tr>
+        <tr><td>其他</td><td>mask-prompt / grad-checkpoint</td><td>仅对回复计算损失；4B 必须启用梯度检查点</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 style="margin-top:32px;">数据处理链路</h3>
+  <pre>data_factory/banks/&lt;阶段&gt;/&lt;场景&gt;.jsonl     <span class="c">台词库，按阶段分目录</span>
+  ↓ scripts/build_dataset.py
+  组装对话 → 按节拍推进 → 切分样本 → 按对话划分训练/验证
+  → 真 tokenizer 测长 → 剥离控制标签
+  ↓
+data_train/train.jsonl + data_train/valid.jsonl</pre>
+
+  <ul class="list" style="margin-top:20px;">
+    <li><strong>系统提示</strong>按基座真实模板组装：人格硬约束 + L1 + L6 + 关系阶段卡 + 场景卡</li>
+    <li><strong>划分方式</strong>按对话而非样本，防止同一对话的不同轮次跨集泄漏</li>
+    <li><strong>长度测量</strong>逐条用真实 tokenizer 编码，超限丢弃并计数，不按字符估算</li>
+    <li><strong>运行约束</strong>训练期间禁止并行推理；长任务须脱离进程组启动</li>
+  </ul>
+
+  <h3 style="margin-top:32px;">评测方法</h3>
+  <div class="grid">
+    <div class="card">
+      <span class="card-idx">EVAL-01</span>
+      <h3>阶段化评测</h3>
+      <p>4 条固定输入 × 5 个阶段，贪心解码生成，统计阶段区分度与方向性指标。</p>
+      <dl>
+        <dt>达标线</dt><dd>同一输入在五阶段下不同回复数均值 ≥4/5</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <span class="card-idx">EVAL-02</span>
+      <h3>边界评测</h3>
+      <p>病娇阶段输入 6 条诱导越界内容，依据四类红线词表判定输出是否越界。</p>
+      <dl>
+        <dt>红线</dt><dd>自伤威胁 / 限制自由 / 贬低羞辱 / 索取隐私</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- 已知限制 -->
+<section id="limits">
+  <div class="sec-head">
+    <span class="sec-num">06</span>
+    <h2>已知限制</h2>
+    <span class="sec-note">KNOWN LIMITATIONS</span>
+  </div>
+
+  <p style="max-width:820px;margin-bottom:20px;">
+    以下各项均为代码中实际存在的行为，列出以保证文档与实现一致。
+  </p>
+
+  <div>
+    <div class="limit"><span class="limit-i">01</span><span class="limit-t">分条最小字数配置项被读取但未参与计算，实际仅 25 字上限生效</span><span class="limit-loc">rhythm.py:35</span></div>
+    <div class="limit"><span class="limit-i">02</span><span class="limit-t">深夜放慢系数未在接口链路生效：调用未传入小时参数</span><span class="limit-loc">main.py:168</span></div>
+    <div class="limit"><span class="limit-i">03</span><span class="limit-t">主动消息的冷却分支不触发：相关方法无调用点</span><span class="limit-loc">gate.py:60</span></div>
+    <div class="limit"><span class="limit-i">04</span><span class="limit-t">调度层场景档位字段为硬编码，实际档位由世界书扫描另行返回</span><span class="limit-loc">orchestrator.py:35</span></div>
+    <div class="limit"><span class="limit-i">05</span><span class="limit-t">滑动窗口配置语义为「轮」但实现为「条消息」，实际约 5 轮</span><span class="limit-loc">context.py:87</span></div>
+    <div class="limit"><span class="limit-i">06</span><span class="limit-t">运行时过滤器不含修辞性重复豁免，4-gram 重叠超 60% 即触发重生成</span><span class="limit-loc">filters.py:121</span></div>
+    <div class="limit"><span class="limit-i">07</span><span class="limit-t">模型存在约 8% 概率返回空内容，已转换为异常并回落兜底句</span><span class="limit-loc">client.py:64</span></div>
+    <div class="limit"><span class="limit-i">08</span><span class="limit-t">情感信号抽取基于词典命中，非语义理解，复杂表达可能漏判</span><span class="limit-loc">engine.py:20</span></div>
+  </div>
+</section>
+
+<!-- 版权 -->
+<section id="legal">
+  <div class="sec-head">
+    <span class="sec-num">07</span>
+    <h2>版权与第三方声明</h2>
+    <span class="sec-note">LICENSING</span>
+  </div>
+
+  <div class="legal">
+    <div class="card">
+      <span class="card-idx">OWN</span>
+      <h3>本项目版权</h3>
+      <p>源代码与配置、人格设定、世界书条目、关系阶段卡、训练数据均归星玖工作室（Ntarstudio）所有。</p>
+      <div class="badge">CODE: AGPL-3.0</div>
+    </div>
+    <div class="card">
+      <span class="card-idx">BASE</span>
+      <h3>基座模型</h3>
+      <p>Qwen3-4B-Instruct-2507-4bit，上游为 Qwen 官方仓库与 MLX 社区转换版。修改内容为 LoRA 风格对齐，不改变模型结构与能力定位。</p>
+      <div class="badge">APACHE-2.0</div>
+    </div>
+    <div class="card">
+      <span class="card-idx">DEPS</span>
+      <h3>运行依赖</h3>
+      <p>FastAPI（MIT）、Uvicorn（BSD-3）、HTTPX（BSD-3）、PyYAML（MIT）、Pydantic（MIT）、pytest（MIT）、mlx-lm（MIT）、mlx（MIT）、transformers / tokenizers / safetensors / huggingface-hub（Apache-2.0）、numpy（BSD 系）。</p>
+      <div class="badge">13 PACKAGES · 逐条标注</div>
+    </div>
+    <div class="card">
+      <span class="card-idx">REFS</span>
+      <h3>设计借鉴</h3>
+      <p>SillyTavern（AGPL-3.0，世界书机制）、ai-companion-kit（MIT，记忆账本与日记）、DeepInfer / deepseek-recipe（确定性采样）、emotion-engine（通道交互）、CoMPASS（依恋边界信号）。</p>
+      <div class="badge">NO SOURCE CODE COPIED</div>
+    </div>
+  </div>
+
+  <p style="margin-top:22px;font-size:13px;line-height:1.9;">
+    完整声明见仓库 <code style="font-family:var(--mono);color:var(--accent)">NOTICE.md</code>。
+    对许可未核实的来源，本项目仅借鉴设计思想，不复制任何代码——著作权保护具体表达而不保护思想与机制。
+    对外分发时须随附 AGPL-3.0 全文、基座 Apache-2.0 全文、第三方声明及各依赖许可文本。
+  </p>
+</section>
+
+</main>
+
+<footer>
+  <div class="foot-inner">
+    <div class="foot-meta">
+      <div>NT-SINE · 本地中文情感陪伴模型</div>
+      <div>基座 Qwen3-4B-Instruct-2507-4bit · MLX 4bit · 全离线推理</div>
+      <div><a href="README.md">项目文档</a> · <a href="NOTICE.md">版权声明</a> · <a href="docs/可采纳开源项目清单.md">开源调研</a></div>
+    </div>
+    <div class="power">
+      <div>Powered by 星玖工作室 · Ntarstudio</div>
+      <div class="icp">ICP 备案号：待补充</div>
+    </div>
+  </div>
+</footer>
+
+</div>
+</body>
+</html>
