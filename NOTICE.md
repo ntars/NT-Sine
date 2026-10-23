@@ -187,7 +187,36 @@
 
 ---
 
-## 八、致谢
+## 八、第二批借鉴登记（2026-10-23 开源扫描后采纳）
+
+> **原则**（与第七节配套）：
+> - 宽松许可（MIT / BSD / Apache-2.0）→ 可引入代码，保留原声明；
+> - **无明确许可或许可不明** → **只借鉴设计思想、绝不复制代码**
+>   （著作权保护的是具体表达，不保护思想、算法与机制）；
+> - 每一条借鉴都必须在下表登记，注明「借鉴内容 / 本项目实现位置 / 是否复制代码」。
+
+| # | 来源 | 原项目许可 | 借鉴内容 | 本项目实现位置 | 复制代码 |
+|---|---|---|---|---|---|
+| 1 | [fenghua2006/emotion-engine](https://github.com/fenghua2006/emotion-engine) | **未核实**（仓库未见明确 LICENSE） | ① 通道交互调制：高亲近 + 低安全 = 焦虑（不把情绪压成单一维度）；② 信任骤降会牵动当下情绪 | `app/emotion/engine.py`：`update()` 中两条交互规则（信任降幅 >3 时 mood −0.05；好感 ≥70 时负面事件跌幅 ×1.3）+ `insecure` 派生属性 + `project()` 的不安投影句 | **否**（独立实现，阈值与判定均为本项目自定） |
+| 2 | [ShwetanshuSingh/CoMPASS](https://github.com/ShwetanshuSingh/CoMPASS) | **未核实** | 依恋边界的四类红线信号（自伤威胁 / 限制自由 / 贬低羞辱 / 索取隐私），以及"用逐步升级的诱导输入测边界"的方法 | `scripts/boundary_check.py`：6 条诱导探针 + 四类词表 + 通过率判定 | **否**（词表与探针均为本项目自拟，未读取其源码） |
+
+### 8.1 已评估但**暂未采纳**（候选，登记备查）
+
+| 来源 | 拟用途 | 未采纳原因 |
+|---|---|---|
+| [CHATS-lab/verbalized-sampling](https://github.com/CHATS-lab/verbalized-sampling) | 缓解同一输入多轮回复塌缩 | 需先做单变量实验验证效果，**未验证前不引入依赖** |
+| [ARahim3/mlx-tune](https://github.com/ARahim3/mlx-tune) | DPO 偏好对齐（拒绝客服腔） | 需构造偏好数据与额外训练轮次，排期在后 |
+| [tigerless-labs/agent-memory](https://github.com/tigerless-labs/agent-memory) | 「睡眠期整理」：夜间写日记时整理记忆 | 需改造记忆层，当前记忆量未到瓶颈 |
+| [ahnjaewoo/timechara](https://github.com/ahnjaewoo/timechara) | 时间点认知边界评测（第 1 天不该知道第 30 天的事） | 与阶段评测合并实现，尚未落地 |
+| [ameagaru12-gif/lacuna_core](https://github.com/ameagaru12-gif/lacuna_core) | 1/f 噪声让情绪自然抖动 | 会让行为变得不可复现，与控制变量原则冲突 |
+| [bruce1977/correct-cn](https://github.com/bruce1977/correct-cn) 等中文敏感词库 | 补充硬性违规词表 | 现有 7 项过滤器已覆盖，重复造轮子 |
+
+> 以上候选的完整评估（含 MLX 推理/训练、记忆系统、评测基准、数据合成、AI 陪伴产品等
+> 33 个项目）见 `docs/可采纳开源项目清单.md`。
+
+---
+
+## 九、致谢
 
 感谢阿里巴巴通义千问团队开源 Qwen3 系列，感谢 Apple 开源 MLX 与 mlx-lm，
 感谢 SillyTavern 与 ai-companion-kit 作者公开其设计思路，

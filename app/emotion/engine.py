@@ -144,7 +144,16 @@ class EmotionEngine:
         if delta > 0:
             s.affection = min(100.0, s.affection + min(cfg["affection_max_gain"], delta * 12))
         elif delta < 0:
+            prev_trust = s.trust
             s.affection = max(0.0, s.affection + max(-1.0, delta * 8))
+            # 通道交互（设计思路参考 fenghua2006/emotion-engine 的"通道间调制"，
+            # 本项目独立实现）：信任被明显消耗时，当下情绪同步走低——
+            # 被辜负的人不会只是"信任降了"而"心情没事"。
+            if prev_trust - s.trust > 3.0:
+                s.mood = max(-1.0, s.mood - 0.05)
+            # 越在意越疼：高好感下同一个负面事件，情绪跌得更深（幅度小，可解释）
+            if s.affection >= 70:
+                s.mood = max(-1.0, s.mood + delta * 0.3)
 
         # 信任：下降快（-≤8）、上升慢（+≤1.5）
         if delta < 0:
@@ -218,6 +227,15 @@ class EmotionEngine:
         text = card.get("card", "")
         return text.strip() if isinstance(text, str) else ""
 
+    @property
+    def insecure(self) -> bool:
+        """不安状态：亲密已经很高，但信任不足——病娇阶段的心理基础。
+
+        设计思路参考 fenghua2006/emotion-engine 的"通道交互"（高亲近 + 低安全 = 焦虑），
+        本项目只做派生判断、不改五维动力学，避免数值失控。
+        """
+        return self.state.intimacy >= 50 and self.state.trust < 45
+
     # ── 自然语言投影（方案 §7.3）：数值绝不直塞 ──
     def project(self) -> str:
         """把五维 + 冲突翻译成 60-100 字的"她此刻的状态"，作为 L3 注入。"""
@@ -244,6 +262,10 @@ class EmotionEngine:
 
         if s.trust < 30:
             parts.append("你不太敢信他的话，会忍不住想试探。")
+
+        # 不安（通道交互的投影侧）：亲密已高但信任不足——比"单纯不信"更黏、更怕失去
+        if self.insecure:
+            parts.append("你怕他走，又不太敢信他——越想抓紧，越怕自己抓得太用力。")
 
         if s.energy <= 25:
             parts.append("你困了，打字变慢，句子变短。")
