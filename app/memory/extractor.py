@@ -42,8 +42,11 @@ class MemoryExtractor:
             return 0
         if self.generator is None:
             return 0
-        rounds = recent_messages[-int(self.cfg["extract_recent_rounds"]):]
-        dialogue = "\n".join(f"{m['role']}: {m['content']}" for m in rounds)
+        # 配置项写的是"轮"，一轮 = 他一句 + 她一句。原先按条数取 6 条，
+        # 实际只有 3 轮，与 3.6 修过的窗口语义是同一个错：名字说轮、实现按条。
+        rounds = max(1, int(self.cfg["extract_recent_rounds"]))
+        window = recent_messages[-rounds * 2:]
+        dialogue = "\n".join(f"{m['role']}: {m['content']}" for m in window)
         data = self.generator.chat_json(
             [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": dialogue}],
             num_ctx=2048,

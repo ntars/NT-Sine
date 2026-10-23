@@ -185,10 +185,24 @@ class MemoryStore:
 
     # ── 时间线与画像 ──
     def add_timeline(self, title: str, detail: str = "", mood_tag: str = "") -> None:
+        """记一条"你们一起经历的事"；同一件事一天内不重复记。
+
+        记忆表本身按内容去重（同句只累加提及次数），但抽取命中旧事件时，
+        调用方仍会往时间线塞一条——结果时间线里同一件事越堆越多。
+        而 L5 的"上次聊到"、主动消息的回忆锚点、画像的"你们一起的事"
+        都按条数取最近几条，重复条目会把它们全占满，看起来像她只会念叨一件事。
+        """
+        now = time.time()
         with self._lock:
+            dup = self._conn.execute(
+                "SELECT 1 FROM timeline WHERE title = ? AND mood_tag = ? AND ts > ? LIMIT 1",
+                (title, mood_tag, now - 86400),
+            ).fetchone()
+            if dup:
+                return
             self._conn.execute(
                 "INSERT INTO timeline (ts, title, detail, mood_tag) VALUES (?, ?, ?, ?)",
-                (time.time(), title, detail, mood_tag),
+                (now, title, detail, mood_tag),
             )
             self._conn.commit()
 
