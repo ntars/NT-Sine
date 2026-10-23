@@ -22,7 +22,7 @@
 7. [测试](#七测试)
 8. [目录结构](#八目录结构)
 9. [已知问题](#九已知问题)
-10. [合规](#十合规)
+10. [合规与版权声明](#十合规与版权声明)
 11. [路线图](#十一路线图)
 
 ---
@@ -572,18 +572,78 @@ NT-Sine/
 
 ---
 
-## 十、合规
+## 十、合规与版权声明
 
-- **本项目代码**：AGPL-3.0（见 `LICENSE`）
-- **基座模型**：Qwen3-4B-Instruct-2507-4bit，**Apache-2.0**。
-  上游 `Qwen/Qwen3-4B-Instruct-2507`（阿里巴巴通义千问团队）+ MLX 转换版
-  `mlx-community/Qwen3-4B-Instruct-2507-4bit`。版权声明与修改说明见 `NOTICE.md`。
-  不使用 Qwen 名称或商标暗示官方背书。
-- **只借鉴设计、不复制代码**：SillyTavern（AGPL-3.0，世界书机制设计）、
-  ai-companion-kit（MIT，记忆账本、长停顿、日记）——仓库内不含其任何源码，详见 `NOTICE.md`
-- **原型小说只做风格统计**，不复制正文，不进入训练集
-- **数据隐私**：全本地推理，对话与记忆只存在本机 `data/nt_sine.db` 与 `data/emotion_state.json`，
-  不联网、不上传
+> 完整版见 `NOTICE.md`。本节是**可直接阅读的摘要**，覆盖项目用到的每一个第三方组件。
+
+### 10.1 本项目自身版权
+
+| 对象 | 版权 | 许可 |
+|---|---|---|
+| 源代码与配置 | 星玖工作室（Ntarstudio） | **AGPL-3.0**（`LICENSE`） |
+| 人格设定、世界书条目、五阶段关系卡 | 星玖工作室（Ntarstudio） | 随代码同 AGPL-3.0 |
+| 训练数据（台词库、日记素材） | 星玖工作室（Ntarstudio）原创 | 本地资产，**不随仓库分发** |
+| 微调权重（adapter / 融合模型） | 星玖工作室（Ntarstudio） | 受基座 Apache-2.0 约束 |
+
+### 10.2 基座模型
+
+- **模型**：`Qwen3-4B-Instruct-2507-4bit`（MLX 4bit 量化版）
+- **上游**：`Qwen/Qwen3-4B-Instruct-2507`（阿里巴巴通义千问团队）+ `mlx-community/Qwen3-4B-Instruct-2507-4bit`
+- **许可**：**Apache-2.0**（全文 `LICENSE-Apache-2.0.txt`）
+- **修改说明**：LoRA 风格对齐（人称/语气/句长/边界表达），不改变模型结构与能力定位
+- **商标**：不得使用 Qwen 名称或商标暗示官方背书
+
+### 10.3 运行时与训练依赖
+
+| 包 | 许可证 | 用途 |
+|---|---|---|
+| `fastapi` | MIT | HTTP 服务框架 |
+| `uvicorn` | BSD-3-Clause | ASGI 服务器 |
+| `httpx` | BSD-3-Clause | 推理服务客户端 |
+| `pyyaml` | MIT | 读取 YAML 配置 |
+| `pydantic` | MIT | 请求/响应校验 |
+| `pytest` | MIT | 回归测试（开发期） |
+| `mlx-lm` | **MIT** | LoRA 训练与推理核心 |
+| `mlx` | MIT | Apple Silicon 数组计算（传递依赖） |
+| `transformers` | Apache-2.0 | 分词器与 chat template（传递依赖） |
+| `tokenizers` | Apache-2.0 | 分词器底层（传递依赖） |
+| `safetensors` | Apache-2.0 | 权重文件格式（传递依赖） |
+| `huggingface-hub` | Apache-2.0 | 模型下载与缓存（传递依赖） |
+| `numpy` | BSD-3-Clause 等复合 | 数值计算（传递依赖） |
+
+> MIT / BSD / Apache-2.0 均要求保留原版权声明。对外分发时须一并附上各依赖的许可文本
+> （可用 `pip-licenses --format=markdown` 一次性导出）。
+
+### 10.4 借鉴的设计（不含任何代码）
+
+| 来源 | 许可 | 借鉴内容 | 复制代码？ |
+|---|---|---|---|
+| **SillyTavern** | AGPL-3.0 | 世界书机制设计（触发/递归/插入位置/预算） | **否** |
+| **ai-companion-kit** | MIT | 角色卡 lint、记忆账本 FIFO 上限、拟人化长停顿、日记独白与角度轮换 | **否**（独立重写） |
+| **DeepInfer / deepseek-recipe** | Apache-2.0 / 未核实 | 确定性采样思路、协议与 Token 对齐动机 | **否** |
+
+> SillyTavern 是 AGPL-3.0：复制其源码会让本项目整体被"传染"。本项目只读文档理解机制，
+> 数据结构与算法全部自行设计，仓库内**不含其任何源码**。
+> ai-companion-kit 为 MIT，本项目保留其作者署名（pinganbbOvO）。
+
+### 10.5 文本素材
+
+- 原型小说《孤灯遇暖》《反派拿捏》《劫缘难避》（作者：夏柠柒）
+  **仅做风格统计**（句长/标点/语气词频率），**不复制正文、不进入训练集**
+- 训练语料全部为本项目原创撰写
+- 未使用任何第三方字体、图标、图片素材（项目无前端资源）
+
+### 10.6 分发要求（若对外发布）
+
+1. 随附 `LICENSE`（AGPL-3.0）、`LICENSE-Apache-2.0.txt`（基座）、`NOTICE.md`（本声明）
+2. 保留依赖包的许可文本
+3. 若提供网络服务：向使用者提供完整对应源码（AGPL 第 13 条）
+4. 不得使用 Qwen 商标暗示官方背书
+
+### 10.7 数据隐私
+
+全本地推理，对话与记忆只存在本机 `data/nt_sine.db` 与 `data/emotion_state.json`，
+**不联网、不上传、不含任何遥测**。
 
 ---
 
