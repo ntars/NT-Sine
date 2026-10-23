@@ -165,7 +165,12 @@ class EmotionEngine:
                     pos += v      # 「不生气了」= 正面
                 else:
                     neg += v
-        conflict = any(w in text for w in _CONFLICT)
+        # 核按钮词命中才算冲突，但求和句里常常正是这几个词——"我们别分手"
+        # 若按子串直接判，一句求和会被当成新的决裂，冲突刚松口又被钉回去。
+        # 所以走和情绪词同一套否定判定：词前三个字内出现"不/没/别"就不算冲突。
+        conflict = any(
+            w in text and not cls._negated(text, text.find(w)) for w in _CONFLICT
+        )
         apology = any(w in text for w in ["对不起", "我错了", "道歉", "别生气"])
         delta = (pos - neg) * 0.08
         return delta, conflict, apology
@@ -182,10 +187,14 @@ class EmotionEngine:
         s.mood = max(-1.0, min(1.0, s.mood + max(-cfg["mood_max_delta"],
                                                  min(cfg["mood_max_delta"], delta + inertia))))
         s.mood *= (1 - cfg["mood_decay"])
-        if s.conflict:
-            s.mood = min(s.mood, -0.15)   # 冲突期间锁负值，直到和解
+        # 冲突期间锁负值，直到和解。但道歉/示好这一轮必须放行：
+        # 锁死的 mood 永远回不到 -0.1 以上，而下面和解的条件恰好要求它回正，
+        # 两边一夹就成了死结——实测连说五轮"对不起我错了"，mood 恒为 -0.15，
+        # 冲突标记一个字都掉不下来，此后每轮都往上下文里塞"你们还横着一件事"。
+        if s.conflict and not (apology or delta > 0.05):
+            s.mood = min(s.mood, -0.15)
 
-        # 冲突标记：出现核按钮词 → 写入未解决冲突；道歉/示好并 mood 恢复 → 和解
+        # 冲突标记：出现核按钮词 → 写入未解决冲突；道歉/示好且 mood 已回正 → 和解
         if conflict:
             s.conflict = user_text.strip()[:40]
         elif s.conflict and (apology or delta > 0.05):

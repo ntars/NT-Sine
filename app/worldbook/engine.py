@@ -90,7 +90,12 @@ class Assembly:
 class WorldbookEngine:
     """世界书引擎。数据来自 data/worldbook/*.json；参数来自 settings.yaml。"""
 
-    LAYER_PREFIX = {"L1": 30, "L2": 50, "L3": 70, "L5": 60, "L6": 40}
+    # 最终插入顺序的层前缀：L1(30) → L6(40) → L2(50) → L4(55) → L5(60)。
+    # L4 必须显式写出来：原先缺这一项，回落成 80，被排到 L5 之后——
+    # 与方案 §4.5 的"记忆事件在前、当前场景在后"正好相反。现在世界书里
+    # 没有 L5 条目（场景由 context.build_l5_scene 动态生成），所以顺序错位
+    # 还没显形；一旦补上 L5 条目就会静默反序，必须先把契约钉住。
+    LAYER_PREFIX = {"L1": 30, "L6": 40, "L2": 50, "L4": 55, "L5": 60, "L3": 70}
 
     def __init__(self, data_dir: Path | None = None):
         self.cfg = SETTINGS["worldbook"]
