@@ -49,14 +49,22 @@ def main() -> int:
     from scripts.build_dataset import build_system
 
     probe = "我今天好累，加班到十点才下班"
-    tmp = tempfile.mkdtemp(prefix="nt-sine-parity-")
+    # 临时库放项目内：本机沙箱对 /tmp 下新建目录有拦截，会误报成脚本故障
+    tmp_root = ROOT / ".parity_tmp"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix="nt-sine-parity-", dir=tmp_root)
     wb = WorldbookEngine()
     # 服务侧模拟「破冰期」，与训练样本的阶段卡对齐
     emotion = EmotionEngine(Path(tmp) / "e.json")
     emotion.state.active_days, emotion.state.intimacy, emotion.state.trust = 3, 15, 30
     prod = build_messages(probe, wb.scan(probe, []), emotion,
                           MemoryStore(Path(tmp) / "t.db"), [])[0]["content"]
-    train = build_train_system_prompt("他很难过", "thawing")
+    # 训练侧调用的是 build_system(scene, stage, 阶段卡, 阶段名)，四项都要给：
+    # 早前这里写成 build_train_system_prompt("他很难过", "thawing")——那个函数
+    # 从来不存在，脚本跑到这一步就 NameError，等于「训练与推理是否同构」这项
+    # 校验一直没真正完成过。名字对不上比逻辑写错更隐蔽：前半段照样出数。
+    train = build_system("他很难过", "thawing", load_stage_cards(),
+                         {s["key"]: s["name"] for s in RELATION_STAGES})
     print(f"\n训练提示 {count(train)} token ｜ 服务提示 {count(prod)} token ｜ 差值 {count(prod) - count(train)}")
     print("训练含【当前场景】:", "【当前场景】" in train,
           "｜训练含【关系阶段】:", "【关系阶段】" in train,

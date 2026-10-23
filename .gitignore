@@ -42,6 +42,8 @@ data_train/
 .pytest_tmp/
 # 端到端检查的临时数据库（e2e_check.py 建在项目内，同上原因）
 .e2e_tmp/
+# 训练/推理提示同构检查的临时目录（check_tokens.py 建在项目内，同上原因）
+.parity_tmp/
 # 视口核验的临时测量页（check_viewport.py 用完即删，异常退出时可能残留）
 .vp_probe_*.html
 
