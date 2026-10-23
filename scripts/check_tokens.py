@@ -45,17 +45,23 @@ def main() -> int:
     from app.emotion.engine import EmotionEngine
     from app.memory.store import MemoryStore
     from app.worldbook.engine import WorldbookEngine
-    from scripts.build_training import build_train_system_prompt
+    from app.emotion.engine import RELATION_STAGES, load_stage_cards
+    from scripts.build_dataset import build_system
 
     probe = "我今天好累，加班到十点才下班"
     tmp = tempfile.mkdtemp(prefix="nt-sine-parity-")
     wb = WorldbookEngine()
-    prod = build_messages(probe, wb.scan(probe, []), EmotionEngine(Path(tmp) / "e.json"),
+    # 服务侧模拟「破冰期」，与训练样本的阶段卡对齐
+    emotion = EmotionEngine(Path(tmp) / "e.json")
+    emotion.state.active_days, emotion.state.intimacy, emotion.state.trust = 3, 15, 30
+    prod = build_messages(probe, wb.scan(probe, []), emotion,
                           MemoryStore(Path(tmp) / "t.db"), [])[0]["content"]
-    train = build_train_system_prompt("他很难过")
+    train = build_train_system_prompt("他很难过", "thawing")
     print(f"\n训练提示 {count(train)} token ｜ 服务提示 {count(prod)} token ｜ 差值 {count(prod) - count(train)}")
-    print("训练含【当前场景】:", "【当前场景】" in train, "｜服务含 L4 场景卡:",
-          any(a.entry.layer == "L4" for a in wb.scan(probe, []).entries))
+    print("训练含【当前场景】:", "【当前场景】" in train,
+          "｜训练含【关系阶段】:", "【关系阶段】" in train,
+          "｜服务含【关系阶段】:", "【关系阶段】" in prod,
+          "｜服务含 L4 场景卡:", any(a.entry.layer == "L4" for a in wb.scan(probe, []).entries))
     if abs(count(prod) - count(train)) > 350:
         print("⚠️ 提示长度差异过大：检查训练与线下的系统提示是否同构")
     return 0

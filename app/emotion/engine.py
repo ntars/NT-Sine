@@ -34,8 +34,12 @@ RELATION_STAGES: list[dict] = [
 ]
 
 
-def _load_stage_cards() -> dict:
-    """读取五阶段话术卡（config/prompts/stages.yaml）。缺失则只有阶段名，不影响主链路。"""
+def load_stage_cards() -> dict:
+    """读取五阶段话术卡（config/prompts/stages.yaml）。
+
+    公开函数：服务侧（engine）与训练侧（build_training）共用同一份配置，
+    避免"训练用的阶段描述"和"推理用的阶段描述"各写一份而漂移。
+    """
     path = PROMPTS_DIR / "stages.yaml"
     if not path.exists():
         return {}
@@ -197,11 +201,22 @@ class EmotionEngine:
         return stage
 
     def stage_sentence(self) -> str:
-        """当前阶段的一句话关系底色（注入系统提示尾部；约 20 字，不占 L3 预算）。"""
+        """当前阶段的一句话关系底色（约 20 字，用于日志/调试/简短注入）。"""
         key = self.relation_stage["key"]
-        card = _load_stage_cards().get(key) or {}
+        card = load_stage_cards().get(key) or {}
         sentence = card.get("sentence", "")
         return sentence if isinstance(sentence, str) else ""
+
+    def stage_card(self) -> str:
+        """当前阶段的完整行为卡（约 100-150 字，注入系统提示）。
+
+        服务侧与训练侧注入**同一份内容**——训练时模型看到的阶段描述
+        与推理时完全一致，否则又是"训练看不见的提示"那类漂移。
+        """
+        key = self.relation_stage["key"]
+        card = load_stage_cards().get(key) or {}
+        text = card.get("card", "")
+        return text.strip() if isinstance(text, str) else ""
 
     # ── 自然语言投影（方案 §7.3）：数值绝不直塞 ──
     def project(self) -> str:

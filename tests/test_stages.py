@@ -100,7 +100,7 @@ def test_stage_injected_into_system_prompt():
         store.close()
 
         system = msgs[0]["content"]
-        assert "你们的关系" in system
-        assert e.stage_sentence() in system
+        assert "【关系阶段】" in system
+        assert e.stage_card() in system
         # L3 情绪投影仍在最后一条 user 消息尾部（分层注入，互不冲突）
         assert "你此刻的状态" in msgs[-1]["content"]

@@ -26,7 +26,9 @@ checkpoints/
 *.gguf
 
 # 训练数据与素材（本地资产，不得入库——Sine 3.4 起全部从零重建）
-data_factory/
+# 例外：scene_defs.py 是场景定义代码，必须入库
+data_factory/*
+!data_factory/scene_defs.py
 data_train/
 *.jsonl
 

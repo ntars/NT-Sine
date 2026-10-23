@@ -82,12 +82,14 @@ def build_messages(user_text: str, assembly: Assembly, emotion: EmotionEngine,
     # L5 当前场景（动态，拼在系统提示尾部 = 背景在前）
     system_parts.append(build_l5_scene(store))
 
-    # 关系阶段底色（动态，随相处时间破冰）：放背景层最后。
+    # 关系阶段（完整行为卡，随相处时间破冰）：放背景层最后。
     # 与"当下情绪"（L3，拼在 user 尾部）分层——关系是稳定的，情绪是波动的，
     # 两者混在一处会让模型把"现在有点烦"误当成"关系变了"。
-    stage_sentence = emotion.stage_sentence()
-    if stage_sentence:
-        system_parts.append(f"(你们的关系：{stage_sentence})")
+    # 注入完整卡而非一句话：训练侧注入的是同一份卡，两侧必须同构。
+    stage_card = emotion.stage_card()
+    if stage_card:
+        stage = emotion.relation_stage
+        system_parts.append(f"【关系阶段】{stage['name']}\n{stage_card}")
 
     messages: list[dict] = [{"role": "system", "content": "\n\n".join(system_parts)}]
     # 最近 N 轮原始对话（滑动窗口）

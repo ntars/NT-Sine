@@ -1,15 +1,17 @@
-"""v3 三项修复的回归测试：L4 互斥、句内复读检测、日记语料重组。"""
+"""世界书 L4 互斥与日记落库的回归测试。
+
+注：原文件中的「复读检测」测试依赖旧数据工厂脚本（filter_dataset / compose_diary），
+旧链路已整体下线（Sine 3.4 起数据从零重建），相关断言随之下线；
+新链路的复读控制由「台词人工把关 + 单句复用上限」承担，见 scripts/build_dataset.py。
+"""
 
 import json
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.worldbook.engine import WorldbookEngine
-from scripts.compose_diary import has_repeat
-from scripts.filter_dataset import find_repeat
 
 
 def _l4_ids(assembly):
@@ -37,39 +39,11 @@ def test_l4_exclusive_nickname():
     assert _l4_ids(a) == ["L4-nickname"], _l4_ids(a)
 
 
-def test_repeat_detector_catches_duplication():
-    assert find_repeat("……我叫白玖玖。你又没听我的，白玖玖。") is not None
-
-
-def test_repeat_detector_ignores_common_words():
-    assert find_repeat("今天今天你今天去哪儿") is None  # "今天"属高频词，不算复读
-    assert find_repeat("笨死了。也就我管你。") is None
-
-
-def test_diary_repeat_detector():
-    assert has_repeat("我把蛋藏底下了。我把蛋藏底下了。") is not None
-    assert has_repeat("今天煮了面，多下了一个蛋，蛋黄没熟。") is None
-
-
-def test_diary_corpus_shape():
-    """重组后的日记语料：条数达标、无复读、角度覆盖 8 类。"""
-    pool = Path("data_factory/diary_pool.jsonl")
-    if not pool.exists():
-        return  # 尚未生成
-    items = [json.loads(l) for l in pool.read_text(encoding="utf-8").splitlines() if l.strip()]
-    assert len(items) >= 1000, len(items)
-    angles = {i["angle"] for i in items}
-    assert len(angles) >= 8, angles
-    for i in items[:200]:
-        assert 50 <= len(i["text"]) <= 320, i["text"][:40]
-        assert has_repeat(i["text"]) is None, i["text"][:60]
-
-
 def test_diary_training_file_exists():
+    """若生成了日记训练文件，结构必须是 system/user/assistant。"""
     p = Path("data_train/diary.jsonl")
     if not p.exists():
-        return
+        return  # 日记语料尚未重建，跳过
     first = json.loads(p.read_text(encoding="utf-8").splitlines()[0])
     roles = [m["role"] for m in first["messages"]]
     assert roles == ["system", "user", "assistant"], roles
-    assert "写吧" in first["messages"][1]["content"]
