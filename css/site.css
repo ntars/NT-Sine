@@ -780,6 +780,13 @@ strong { font-weight: 600; }
 
 .foot__beian:hover { text-decoration: underline; }
 
+.foot__copyright {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--label-3);
+  text-align: center;
+}
+
 /* ══ 响应式 ══ */
 
 @media (max-width: 900px) {
