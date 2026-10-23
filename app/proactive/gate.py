@@ -108,13 +108,30 @@ class ProactiveGate:
     # ── 总判定 ──
     def check(self, last_interaction_ts: float | None,
               memories: list[dict], timeline: list[dict],
-              now: float | None = None) -> ProactiveDecision:
+              now: float | None = None, commit: bool = True) -> ProactiveDecision:
         """now 只在测试里显式传入，线上沿用当前时刻。
 
         不能省掉这个参数：闸门一里"深夜禁主动"排在最前面，若测试拿真实时间戳跑，
         结论就随"跑测试时是几点"变化——下午跑通过、凌晨跑失败。机器时钟不该
         决定测试结果，所以时刻由调用方给进来，默认值保持线上原行为。
+
+        commit=False 是"只看不发"：调试台要能查「现在会不会开口」，但不能真把
+        配额用掉。check 内部会累加今日次数、记发出时刻、挂上待回应标记，甚至
+        因为上次没回而刷一次冷却——调试一次就等于真发了一次，还顺手让接下来
+        六小时不再开口。所以只读模式改为算完把四项状态原样放回。
         """
+        snapshot = (self._today_count, self._last_sent_ts,
+                    self._last_refused_ts, self._pending)
+        try:
+            return self._check(last_interaction_ts, memories, timeline, now)
+        finally:
+            if not commit:
+                (self._today_count, self._last_sent_ts,
+                 self._last_refused_ts, self._pending) = snapshot
+
+    def _check(self, last_interaction_ts: float | None,
+               memories: list[dict], timeline: list[dict],
+               now: float | None) -> ProactiveDecision:
         now = now or time.time()
         # 上一条主动发出后对方一直没回 → 先记一次"未获回复"，再走闸门。
         # 标记只记一次：每次检查都刷新冷却时间，冷却就永远不会过期。

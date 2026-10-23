@@ -252,11 +252,16 @@ def add_memory(kind: str, content: str) -> dict:
 
 @app.get("/api/proactive/check")
 def proactive_check() -> dict:
-    """手动触发一次主动消息判定（调试用）。"""
+    """手动触发一次主动消息判定（调试用，只看不发）。
+
+    两处口径必须和 _proactive_loop 一致，否则调试台给出的结论跟线上不是一回事：
+    一是时刻取 last_user_ts（她自己的话不算"他回了"），二是 commit=False，
+    否则查一次就消耗一次每日配额、还会挂上待回应标记让接下来六小时不开口。
+    """
     state = _get_state()
     memories = [m.__dict__ for m in state.store.top_memories(10)]
-    decision = state.proactive.check(state.store.last_interaction_ts(), memories,
-                                     state.store.recent_timeline(5))
+    decision = state.proactive.check(state.store.last_user_ts(), memories,
+                                     state.store.recent_timeline(5), commit=False)
     return {"should": decision.should, "reason": decision.reason, "message": decision.message}
 
 

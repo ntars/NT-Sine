@@ -25,6 +25,14 @@ from app.generation.client import GenerationError  # noqa: E402
 DEFAULT_REPLY = "水在桌上。"
 
 
+def _afternoon() -> float:
+    """今天的下午三点。主动闸门里"深夜禁主动"排在最前，用例必须避开凌晨。"""
+    import time
+
+    lt = time.localtime()
+    return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 15, 0, 0, 0, 0, -1))
+
+
 class FakeGenerator:
     """假生成器：按队列吐台词，可指定第几次调用抛错。
 
@@ -192,6 +200,59 @@ def test_proactive_check_returns_decision(client):
     body = client.get("/api/proactive/check").json()
     assert set(body) == {"should", "reason", "message"}
     assert isinstance(body["should"], bool)
+
+
+def test_proactive_check_is_readonly(client, freeze):
+    """调试接口连查多次，今日配额与待回应标记都不能变。
+
+    闸门 check() 内部会累加今日次数、记发出时刻、挂待回应标记；调试台若
+    直接调，查一次就等于真发了一次——查三次当天不再开口，还会因为"没回"
+    进入六小时冷却。所以接口必须走只读模式。
+
+    时钟钉在下午三点：闸门一里"深夜禁主动"排在最前，跑这条用例时若是凌晨，
+    返回的理由会是深夜而不是我们要验的配额。
+    """
+    import app.main as m
+
+    now = _afternoon()
+    freeze("app.proactive.gate.time", now)
+    gate = m.STATE.proactive
+    gate.cfg = dict(gate.cfg, min_gap_h=0, abandon_rate=0.0)
+    client.post("/api/chat", json={"message": "今天加班到十点"})
+
+    first = client.get("/api/proactive/check").json()
+    assert first["should"] is True, first["reason"]
+    for _ in range(4):
+        again = client.get("/api/proactive/check").json()
+        assert again["should"] is True, f"只读查询把配额吃掉了：{again['reason']}"
+
+    assert gate._today_count == 0, gate._today_count
+    assert gate._pending is False
+    assert gate._last_sent_ts == 0.0
+
+
+def test_proactive_check_ignores_her_own_message(client, insert_at, freeze):
+    """她主动说过一句、他没回：接口要给「冷却中」，不能当成他回了。
+
+    这是线上同一个缺陷的第二个入口——后台循环改了取值口径，调试接口当时
+    还留在 last_interaction_ts 上，于是同一时刻两处给出相反结论。
+    """
+    import app.main as m
+
+    now = _afternoon()
+    freeze("app.proactive.gate.time", now)
+    gate = m.STATE.proactive
+    gate.cfg = dict(gate.cfg, min_gap_h=0, abandon_rate=0.0)
+    store = m.STATE.store
+
+    insert_at(store, "user", "我回来了", now - 5 * 3600)            # 他五小时前说话
+    insert_at(store, "assistant", "外面降温了。", now - 3 * 3600)   # 她三小时前主动发
+    gate._last_sent_ts = now - 3 * 3600
+    gate._pending = True
+
+    body = client.get("/api/proactive/check").json()
+    assert body["should"] is False, body
+    assert "冷却" in body["reason"], body["reason"]
 
 
 def test_uninitialized_state_returns_503():
