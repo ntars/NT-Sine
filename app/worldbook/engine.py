@@ -225,6 +225,15 @@ class WorldbookEngine:
             for e in pool:
                 if e.id in activated_ids or e.layer != "L4" or not e.recursive:
                     continue
+                if added_this_round >= int(self.cfg["recursion_cap_per_round"]):
+                    break
+                if direct_l4_count + recursive_added >= l4_cap:
+                    break
+                # 先判有没有命中，再判要不要压制。顺序反了会把同层所有低优先级卡
+                # 都记成"被压制"——实测「下雨等伞」的压制名单里塞进了 drunk/money/cat，
+                # 那些卡压根没被触发过。调试台的数字必须对应真事。
+                if not self._match_entry(e, frontier_text, frontier_text):
+                    continue
                 if self.cfg.get("l4_exclusive", True):
                     # 互斥：递归也不得引入比当前场景卡优先级低的卡（否则同样串味）
                     cur_pri = max([a.entry.priority for a in activated
@@ -232,16 +241,11 @@ class WorldbookEngine:
                     if e.priority < cur_pri:
                         suppressed.append(e.id)
                         continue
-                if added_this_round >= int(self.cfg["recursion_cap_per_round"]):
-                    break
-                if direct_l4_count + recursive_added >= l4_cap:
-                    break
-                if self._match_entry(e, frontier_text, frontier_text):
-                    activated.append(ActivatedEntry(e, "recursive", round_no,
-                                                    estimate_tokens(e.content)))
-                    activated_ids.add(e.id)
-                    added_this_round += 1
-                    recursive_added += 1
+                activated.append(ActivatedEntry(e, "recursive", round_no,
+                                                estimate_tokens(e.content)))
+                activated_ids.add(e.id)
+                added_this_round += 1
+                recursive_added += 1
             if added_this_round == 0:
                 break  # 无新联想，链到头
 
