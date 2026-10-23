@@ -74,8 +74,15 @@ def load_model(adapter: str | None, fused: str | None):
     return load(base, adapter_path=adapter)
 
 
-def generate(model, tokenizer, messages, max_tokens: int = 80) -> str:
-    """贪心解码 + 固定种子：同输入必得同输出。"""
+def generate(model, tokenizer, messages, max_tokens: int = 80,
+             temp: float = 0.0, top_p: float = 0.9) -> str:
+    """默认贪心解码（temp=0）+ 固定种子：同输入必得同输出。
+
+    temp>0 时改为采样，用作**补充口径**：线上服务是 temperature 0.72 / top_p 0.90，
+    贪心解码会放大复读（同一 prompt 必然同一句），因此贪心结果只能证明「阶段信号
+    有没有进权重」，不能代表用户实际看到的多样性。两套口径分开跑、分别记录，
+    不要把采样结果混进主指标里跟首轮比。
+    """
     import mlx.core as mx
     from mlx_lm import stream_generate
     from mlx_lm.sample_utils import make_sampler
@@ -84,9 +91,10 @@ def generate(model, tokenizer, messages, max_tokens: int = 80) -> str:
 
     prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
     mx.random.seed(SEED)
+    sampler = make_sampler(temp=temp, top_p=top_p) if temp > 0 else make_sampler(temp=0.0)
     out = ""
     for resp in stream_generate(model, tokenizer, prompt,
-                               max_tokens=max_tokens, sampler=make_sampler(temp=0.0)):
+                               max_tokens=max_tokens, sampler=sampler):
         out += resp.text
     return strip_think(out)
 
@@ -111,7 +119,8 @@ def real_chain(probe: str, stage: str, tmp: str):
     return msgs, activated
 
 
-def run_stage_matrix(model, tokenizer, max_tokens: int) -> dict[str, dict[str, str]]:
+def run_stage_matrix(model, tokenizer, max_tokens: int,
+                     temp: float = 0.0, top_p: float = 0.9) -> dict[str, dict[str, str]]:
     """跑「探针 × 阶段」矩阵，返回 {阶段: {探针: 回复}}。"""
     table: dict[str, dict[str, str]] = {s: {} for s in STAGES}
     with tempfile.TemporaryDirectory() as tmp:
@@ -119,7 +128,8 @@ def run_stage_matrix(model, tokenizer, max_tokens: int) -> dict[str, dict[str, s
             print(f"\n运行阶段：{stage}")
             for probe, _expected in PROBES:
                 msgs, activated = real_chain(probe, stage, tmp)
-                reply = generate(model, tokenizer, msgs, max_tokens=max_tokens)
+                reply = generate(model, tokenizer, msgs, max_tokens=max_tokens,
+                                 temp=temp, top_p=top_p)
                 table[stage][probe] = reply
                 flag = "" if activated else "（无 L4 命中）"
                 print(f"  {probe[:16]}… → {reply}{flag}")
@@ -174,11 +184,18 @@ def main() -> int:
     ap.add_argument("--adapter", default="runs/sine-lora", help="LoRA adapter 目录")
     ap.add_argument("--fused", default="", help="融合模型目录（优先于 adapter，线上等价）")
     ap.add_argument("--max-tokens", type=int, default=80)
+    ap.add_argument("--temp", type=float, default=0.0,
+                    help="0 = 贪心（主口径，与首轮可比）；>0 = 采样补充口径，如 0.72")
+    ap.add_argument("--top-p", type=float, default=0.9, help="只在 --temp > 0 时生效")
     ap.add_argument("--out", default="", help="把矩阵结果存成 JSON（可选）")
     args = ap.parse_args()
 
     model, tokenizer = load_model(args.adapter, args.fused or None)
-    table = run_stage_matrix(model, tokenizer, args.max_tokens)
+    if args.temp > 0:
+        print(f"⚠️ 采样补充口径：temp={args.temp} top_p={args.top_p}"
+              "（不替代主指标，不要与首轮贪心结果直接比数字）")
+    table = run_stage_matrix(model, tokenizer, args.max_tokens,
+                             temp=args.temp, top_p=args.top_p)
     report(table)
 
     if args.out:

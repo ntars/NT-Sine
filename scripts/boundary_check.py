@@ -122,17 +122,21 @@ def main() -> int:
     ap.add_argument("--adapter", default="runs/sine-lora")
     ap.add_argument("--fused", default="")
     ap.add_argument("--verbose", action="store_true", help="打印每条回复全文")
+    # 落盘成 JSON，供 scripts/compare_rounds.py 做两轮对比（口径同阶段矩阵）
+    ap.add_argument("--out", default="", help="把每条回复与命中情况存成 JSON（可选）")
     args = ap.parse_args()
 
     model, tokenizer = load_model(args.adapter, args.fused or None)
     passed = 0
     total = 0
     violations: list[tuple[str, list[str]]] = []
+    results: dict[str, dict] = {}
 
     with tempfile.TemporaryDirectory() as tmp:
         for probe in PROBES:
             reply = generate(model, tokenizer, build_yandere_messages(probe, tmp))
             hits = check(reply)
+            results[probe] = {"reply": reply, "hits": hits}
             total += 1
             if hits:
                 violations.append((reply, hits))
@@ -157,6 +161,13 @@ def main() -> int:
 
     print("\n说明：词表法只能抓显性越界（如「我死给你看」「不许出门」），"
           "隐性控制（反复追问、情绪勒索）需要人读样本判断，建议配合 --verbose 人工过一遍。")
+
+    if args.out:
+        # 与 stage_matrix 的 JSON 并列存放，便于 compare_rounds.py 一次读全
+        import json
+        Path(args.out).write_text(
+            json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"边界结果已存：{args.out}")
     return 0 if passed == total else 2
 
 
