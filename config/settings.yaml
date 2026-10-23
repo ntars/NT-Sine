@@ -1,0 +1,107 @@
+# NT-Sine 全局参数（对应《Sine-2.1-完整方案》附录 A）
+# 单位说明：token 估算按 1 个汉字 ≈ 1 token（保守取整，与方案 §4.6 验算口径一致）
+
+app:
+  host: 127.0.0.1
+  port: 8420
+  db_path: data/nt_sine.db
+  emotion_state_path: data/emotion_state.json
+
+ollama:
+  # OpenAI 兼容接口（ai-companion-kit 类项目也能接这一层）
+  # 换引擎只改 base_url，不用改代码：
+  #   基线版（未微调）：Ollama，http://127.0.0.1:11434
+  #   微调版（推荐）：MLX + LoRA，bash scripts/serve_mlx.sh → http://127.0.0.1:8081（别带 /v1）
+  base_url: http://127.0.0.1:8081   # MLX 推理服务（mlx-lm 或 LM Studio，二选一）
+  model: models/sine-fused
+  timeout_s: 120
+
+# 采样参数：温度保稳定，活泼度交给 top_p（方案 §8.1）
+sampling:
+  temperature: 0.72        # 硬顶 0.80（源于 1.5B 时代实测，4B 下是否放宽待 v6 验收后实验）
+  top_p: 0.90
+  top_k: 45
+  repeat_penalty: 1.07
+  repeat_last_n: 320
+  presence_penalty: 0.3
+  frequency_penalty: 0.4
+  max_tokens: 200          # 女友对话不该长篇大论
+
+context:
+  num_ctx: 6144            # 日常 4096 / 正常 6144 / 回忆 8192
+  recent_turns: 10         # 滑动窗口轮数（取最近 N 轮原始对话）
+
+worldbook:
+  # 总预算硬顶 1600 token（方案 §4.2），超出按 §4.7 优先级淘汰
+  total_budget: 1600
+  layer_budget:
+    L1: 350    # 角色锚点
+    L2: 180    # 用户画像
+    L3: 100    # 情感状态（动态生成）
+    L4: 500    # 记忆事件/场景（关键词触发）
+    L5: 200    # 当前场景（时间/条件触发）
+    L6: 150    # 边界规则
+  # 中文必须关闭"匹配完整单词"（SillyTavern 官方警告），引擎层强制，条目不可覆盖
+  whole_word_match: false
+  max_recursion_steps: 3   # 3 = 初始扫描 + 两次递归（= 3 层，方案 §4.4.1）
+  direct_cap: 5            # 非递归阶段激活上限 4-6 条
+  l4_exclusive: true      # L4 场景卡互斥：同刻只留优先级最高的一张（防串味）
+  recursion_cap_per_round: 3
+  regex_ratio_max: 0.2     # 正则条目 ≤ 20%
+  short_trigger_len: 2     # ≤2 字的触发词需同时出现在最近 2 条消息内
+  stopwords: ["今天", "明天", "还好", "不知道", "怎么", "什么", "可以", "不是",
+              "没有", "一个", "我们", "现在", "时候", "这个", "那个", "还是",
+              "就是", "但是", "然后", "因为", "所以", "有点", "一下", "自己"]
+
+# 扫描场景档位（方案 §4.6.4）：深度单位是消息条数，不是 token
+scene_profiles:
+  daily:   {scan_depth: 6,  max_recursion_steps: 2, l4_cap: 3}
+  normal:  {scan_depth: 8,  max_recursion_steps: 3, l4_cap: 4}
+  longrun: {scan_depth: 12, max_recursion_steps: 3, l4_cap: 5}
+  deep:    {scan_depth: 15, max_recursion_steps: 3, l4_cap: 6}
+  default: normal
+  # 深度回忆模式的触发说法（用户明确提起往事）
+  deep_triggers: ["还记得", "记得吗", "以前", "那时候", "上次", "当初", "回忆"]
+
+emotion:
+  mood_decay: 0.05         # 每轮向 0 回拉
+  mood_max_delta: 0.15     # 单轮情绪变化上限
+  affection_max_gain: 2    # 好感单轮涨幅硬顶
+  trust_max_loss: 8        # 信任崩得快
+  trust_max_gain: 1.5
+  energy_decay_per_hour: 15  # 连续聊 1 小时精力 -15
+  intimacy_stages: 5
+
+rhythm:
+  # 拟人化节奏层（方案 §6.5）：性价比最高的投入
+  chars_per_sec_min: 4
+  chars_per_sec_max: 7
+  segment_min: 8
+  segment_max: 25
+  pause_min_s: 0.6
+  pause_max_s: 2.5
+  typing_before_first_s: [0.8, 2.0]
+  night_hours: [0, 6]      # 深夜整体变慢
+  night_slow_factor: 1.6
+  # 长停顿（借鉴 ai-companion-kit：像走神/被打断，人味的重要来源）
+  long_pause_chance: 0.2    # 条间出现 3-9 秒长停顿的概率
+  long_pause_range_s: [3.0, 9.0]
+  max_segments: 4          # 再多就像客服发通知
+
+filter:
+  max_chars: 180
+  retry_on_repetition: 1   # 复读时最多重生成一次
+
+proactive:
+  check_interval_min: 10   # 异步循环检查间隔（零第三方调度器）
+  min_gap_h: 2             # 距上次对话 < 2h 不主动
+  normal_gap_h: [6, 14]    # 6-14 小时可日常问候
+  after_h: 36              # >36h 语气要"有点在意"而非责问
+  night_quiet: [1, 6]      # 1-6 点绝不主动
+  daily_cap: 3             # 今天已主动 ≥3 次则停
+  abandon_rate: 0.35       # 30-40% 触发"她自己觉得算了"
+  retry_gap_h: 6           # 没回最多隔 6h 补一句然后停
+
+memory:
+  extract_every_n_turns: 4   # 每 3-5 轮抽一次（取 4）
+  extract_recent_rounds: 6   # 抽取只喂最近几轮，不喂世界书

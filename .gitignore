@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+._*
+__MACOSX/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 运行时数据（数据库、对话内容与情感状态不入库）
+data/*.db
+data/*.db-journal
+data/emotion_state.json
+logs/
+
+# 数据工厂产物（数据集随项目入库，作为训练资产的一部分）
+data_factory/heroine_samples.txt
+
+# 训练产物（checkpoint 体积大且含数据，永不入库）
+runs/
+checkpoints/
+*.safetensors
+*.gguf
+
+# 训练数据与素材（本地资产，不得入库——Sine 3.4 起全部从零重建）
+data_factory/
+data_train/
+*.jsonl
+
+# 编辑器
+.idea/
+.vscode/
+
+# 测试缓存
+.pytest_cache/
+
+# 自动化任务运行记忆（工具生成，非项目资产）
+.workbuddy/
+
+# 融合后的模型权重（839MB，可用 mlx_lm fuse 从 基座+adapter 复现）
+models/
