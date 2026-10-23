@@ -440,8 +440,8 @@ data_train/train.jsonl + data_train/valid.jsonl</pre>
   <section class="sec" id="limits">
     <div class="sec__head">
       <p class="sec__eyebrow">已知限制</p>
-      <h2 class="sec__title">六项缺口已修，两项边界保留</h2>
-      <p class="sec__lede">前六项在阶段三修复并补了回归测试；后两项是模型侧与词典法的固有边界，不打算用更多规则去追。</p>
+      <h2 class="sec__title">八项缺口已修，三项边界保留</h2>
+      <p class="sec__lede">前八项已修复并各补了回归测试；后三项分别是模型侧、词典法与接口层的边界，不打算用更多规则去追。</p>
     </div>
 
     <div class="table-wrap">
@@ -452,12 +452,15 @@ data_train/train.jsonl + data_train/valid.jsonl</pre>
         <tbody>
           <tr><th>01</th><td><s>分条最小字数未参与计算</s> · 已修复：短条并入相邻条</td><td><code>rhythm.py</code></td></tr>
           <tr><th>02</th><td><s>深夜放慢未在链路生效</s> · 已修复：入口自动取当前小时</td><td><code>rhythm.py</code></td></tr>
-          <tr><th>03</th><td><s>主动冷却分支不触发</s> · 已修复：未被回应即记冷却</td><td><code>gate.py</code></td></tr>
+          <tr><th>03</th><td><s>主动冷却分支不触发</s> · 已修复：按他的开口时刻判「有没有回」</td><td><code>gate.py</code></td></tr>
           <tr><th>04</th><td><s>档位字段硬编码</s> · 已修复：由扫描结果透传</td><td><code>orchestrator.py</code></td></tr>
           <tr><th>05</th><td><s>窗口按条而非按轮</s> · 已修复：10 轮 = 20 条</td><td><code>store.py</code></td></tr>
           <tr><th>06</th><td><s>无修辞性重复豁免</s> · 已修复：强调标记放行</td><td><code>filters.py</code></td></tr>
-          <tr><th>07</th><td>模型约 8% 概率返回空内容，已转异常并回落兜底句</td><td><code>client.py</code></td></tr>
-          <tr><th>08</th><td>情感信号抽取基于词典与规则，非语义理解，反讽仍可能漏判</td><td><code>engine.py</code></td></tr>
+          <tr><th>07</th><td><s>吵架后永久和解不了</s> · 已修复：道歉那一轮解除情绪锁定</td><td><code>engine.py</code></td></tr>
+          <tr><th>08</th><td><s>长回复分条吞字</s> · 已修复：超出条数并回末条</td><td><code>rhythm.py</code></td></tr>
+          <tr><th>09</th><td>模型约 8% 概率返回空内容，已转异常并回落兜底句</td><td><code>client.py</code></td></tr>
+          <tr><th>10</th><td>情感信号抽取基于词典与规则，非语义理解，反讽仍可能漏判</td><td><code>engine.py</code></td></tr>
+          <tr><th>11</th><td>主动消息只落库，尚无推送或拉取通道；要在界面看见她主动开口，需客户端自行接入</td><td><code>main.py</code></td></tr>
         </tbody>
       </table>
     </div>
