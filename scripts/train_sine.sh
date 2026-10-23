@@ -11,7 +11,11 @@
 #   --grad-checkpoint → 4B 不开必被杀（旧链路实测）
 #   --save-every 500 → 每 500 步落盘一次（约 35 分钟），兼顾 SSD 寿命与崩溃损失
 #   --learning-rate 1e-4 → 4B 上实测收敛平稳（loss 3.8 → 0.4，无发散）
-#   --val-batches -1 → 验证集小，全量评估，每 50 步看一次曲线防过拟合
+#   --val-batches -1 → 验证集小，全量评估（每轮约 550 秒，实测值）
+#   --steps-per-eval 200 → 每 200 步验证一次。实测 2026-10-23 二轮首启用 50：
+#     240 步里训练本体只占 380 秒，4 次全量验证却吃掉 2200 秒（九成时间在验证）。
+#     按 50 步一验跑满 3200 步要 64 次验证 ≈ 9.8 小时；改 200 步一验只需 16 次 ≈ 2.4 小时，
+#     曲线分辨率仍够看住过拟合（每 200 步约 0.24 个 epoch）。
 #   --mask-prompt    → 只在她的话上算损失（对话微调的正确姿势）
 #
 # 用法：
@@ -73,7 +77,7 @@ ARGS=(
   --iters "$ITERS"
   --learning-rate 1e-4
   --save-every 500
-  --steps-per-eval 50
+  --steps-per-eval 200
   --val-batches -1
   --adapter-path "$OUT"
   --seed 42

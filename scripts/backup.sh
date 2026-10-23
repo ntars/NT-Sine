@@ -26,6 +26,7 @@ mkdir -p "$DEST/code" "$DEST/full"
 # 注意：--exclude 必须写在 -C 之前，写在文件列表之后会被 tar 当成文件名（实测踩过）
 tar czf "$DEST/code/${TS}.tar.gz" \
   --exclude='.git' \
+  --exclude='.edgeone' \
   --exclude='runs' \
   --exclude='models' \
   --exclude='data_train' \

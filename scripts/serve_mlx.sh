@@ -21,7 +21,7 @@ export HF_HUB_DISABLE_XET=1
 
 if [ ! -f "$MODEL/config.json" ]; then
   echo "融合模型不存在：$MODEL" >&2
-  echo "先执行融合：python -m mlx_lm fuse --model \"Sine 大模型/基座模型/Qwen3-4B-Instruct-2507-4bit\" --adapter-path runs/sine-lora --save-path models/sine-fused" >&2
+  echo "先执行融合：BASE=\"\${SINE_BASE:-\$HOME/Documents/Github/Sine 大模型/基座模型/Qwen3-4B-Instruct-2507-4bit}\"; python -m mlx_lm fuse --model \"\$BASE\" --adapter-path runs/sine-lora --save-path models/sine-fused" >&2
   exit 1
 fi
 

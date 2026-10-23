@@ -357,8 +357,10 @@ python3 -m venv .venv &amp;&amp; source .venv/bin/activate
 pip install -r requirements.txt
 
 <span class="cm"># 2. 融合微调权重（必须融合后启动服务）</span>
+<span class="cm">#    基座与仓库同级存放，路径不同时用 SINE_BASE 覆盖</span>
+BASE=<span class="kw">"${SINE_BASE:-$HOME/Documents/Github/Sine 大模型/基座模型/Qwen3-4B-Instruct-2507-4bit}"</span>
 python -m mlx_lm fuse \
-  --model <span class="kw">"Sine 大模型/基座模型/Qwen3-4B-Instruct-2507-4bit"</span> \
+  --model <span class="kw">"$BASE"</span> \
   --adapter-path runs/sine-lora \
   --save-path models/sine-fused
 
@@ -527,9 +529,9 @@ data_train/train.jsonl + data_train/valid.jsonl</pre>
     </div>
 
     <nav class="foot__links" aria-label="相关链接">
-      <a href="README.md">项目文档</a>
-      <a href="NOTICE.md">版权声明</a>
-      <a href="docs/可采纳开源项目清单.md">开源调研</a>
+      <a href="https://github.com/ntars/NT-Sine/blob/main/README.md" target="_blank" rel="noopener">项目文档</a>
+      <a href="https://github.com/ntars/NT-Sine/blob/main/NOTICE.md" target="_blank" rel="noopener">版权声明</a>
+      <a href="https://github.com/ntars/NT-Sine/blob/main/docs/可采纳开源项目清单.md" target="_blank" rel="noopener">开源调研</a>
       <a href="https://github.com/ntars/NT-Sine" target="_blank" rel="noopener">GitHub</a>
     </nav>
 
