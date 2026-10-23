@@ -164,6 +164,16 @@ def chat(req: ChatRequest) -> ChatResponse:
             result = retry_result
         except GenerationError:
             pass
+    # 4.5 重生成后仍然是空正文：模型这一轮确实没给出可用的话（只吐了思考块，
+    #     或整段旁白被裁空）。用一条符合人设的短句兜住，否则前端会播出一段空白。
+    #     这句不写进历史——与生成失败同理，写进去下一轮会被复读过滤器拦住，
+    #     兜底→判复读→再兜底就成了死循环。
+    if not result.text:
+        logger.warning("本轮无可用正文（%s），使用兜底句", result.triggered)
+        result.text = "……我有点累，先不说了。"
+        gen_failed = True
+        result.triggered.append("空回复兜底")
+
     state.emotion.mark_degraded(retried)
 
     # 5. 情感状态随本轮更新（用过滤后的文本，避免脏输出影响状态）

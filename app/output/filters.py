@@ -125,8 +125,12 @@ def filter_output(text: str, history: list[str] | None = None,
 
     # 4. 复读：与最近 3 轮高度重复 → 要求重生成一次
     #    带强调标记的刻意重复放行，否则她连"把话说重一点"都做不到
+    #    顺序约定：history 由调用方按「旧 → 新」传入（main.py 直接给滑动窗口原文），
+    #    所以最近的话在末尾，必须取 history[-3:]。早前写成 [:3]，比的是窗口里
+    #    最老的三条，她刚说过的那句压根不在比对范围——线上「连着几轮同一句」
+    #    就是这么漏过去的（旧的复读用例只喂一条历史，两种切法结果相同，测不出来）
     if not any(m in text for m in _EMPHASIS_MARKS):
-        for h in history[:3]:
+        for h in history[-3:]:
             if h and _ngram_overlap(text, h) > 0.6:
                 result.triggered.append("复读")
                 result.need_retry = True
@@ -158,4 +162,10 @@ def filter_output(text: str, history: list[str] | None = None,
         text = cut
 
     result.text = text
+    # 收尾：剥思考块、裁旁白之后如果什么都不剩，这一轮等于没有可用正文。
+    # 播放层拿到空串会播出一段「什么都没说」的空白，所以标记重来一次；
+    # 这里只打标记、不塞话术——兜底话术属人格口径，由调用方统一处理。
+    if not text:
+        result.triggered.append("空回复")
+        result.need_retry = True
     return result

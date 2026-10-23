@@ -138,6 +138,27 @@ def test_chat_retries_once_when_repeating(client):
     assert m.STATE.emotion.state.degraded_turns >= 1
 
 
+def test_chat_empty_reply_falls_back(client):
+    """模型只吐思考块时前端不能拿到空白：兜底一句，且兜底句不入库。
+
+    2026-10-24 审计补的用例。剥掉思考块后剩空串，早前会原样往下走——
+    分条为空、前端播一段「什么都没说」。README 记的「约 8% 空返回」里，
+    有一部分不是模型没输出，而是输出被剥成了空。
+    """
+    import app.main as m
+
+    m.STATE.generator.queue = ["<think>\n\n</think>\n\n", "<think>\n\n</think>\n\n"]
+    r = client.post("/api/chat", json={"message": "在吗"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reply"] == "……我有点累，先不说了。", body["reply"]
+    assert "空回复兜底" in body["filtered"], body["filtered"]
+    assert body["segments"], "兜底之后必须有分条，前端才有东西可播"
+
+    turns = m.STATE.store.recent_turns(5)
+    assert [t["role"] for t in turns] == ["user"], "兜底句不该写进历史"
+
+
 def test_chat_rejects_empty_message(client):
     r = client.post("/api/chat", json={"message": ""})
     assert r.status_code == 422, "空消息应在入口被挡，不进模型"
