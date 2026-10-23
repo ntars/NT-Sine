@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """端到端检查：用微调后的 MLX 服务跑完整链路（世界书→情感→生成→过滤→节奏→落库）。
 
-前置：bash scripts/serve_mlx.sh runs/nt-sine-lora-v3 8081
+前置：bash scripts/serve_mlx.sh models/sine-fused 8081
 运行：python scripts/e2e_check.py
 """
 
@@ -15,15 +15,17 @@ from app.config import SETTINGS  # noqa: E402
 
 # 指向 MLX 融合模型服务（与 config/settings.yaml 的 ollama.model 对齐；
 # 必须用 fuse 产物直接起服务，勿用 --adapter-path 直挂——会静默退回未微调基座）
-MODEL_ID = "/Users/ntars/Documents/Github/NT-Sine/models/sine-fused"
+MODEL_ID = str(ROOT / "models" / "sine-fused")
 SETTINGS["ollama"]["base_url"] = "http://127.0.0.1:8081"  # 不要带 /v1，生成层会自己拼
 SETTINGS["ollama"]["model"] = MODEL_ID
 
-# 用临时数据库：端到端检查绝不能污染真实对话历史
-import tempfile  # noqa: E402
-_TMP = tempfile.mkdtemp(prefix="nt-sine-e2e-")
-SETTINGS["app"]["db_path"] = f"{_TMP}/e2e.db"
-SETTINGS["app"]["emotion_state_path"] = f"{_TMP}/emotion.json"
+# 用临时数据库：端到端检查绝不能污染真实对话历史。
+# 目录建在项目内而不是系统临时目录——本机沙箱会拦截系统临时目录的 mkdir，
+# 与 tests/conftest.py 把 pytest basetemp 固定到项目内是同一个原因。
+_TMP = ROOT / ".e2e_tmp"
+_TMP.mkdir(exist_ok=True)
+SETTINGS["app"]["db_path"] = str(_TMP / "e2e.db")
+SETTINGS["app"]["emotion_state_path"] = str(_TMP / "emotion.json")
 
 from fastapi.testclient import TestClient  # noqa: E402
 

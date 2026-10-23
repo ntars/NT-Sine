@@ -40,6 +40,8 @@ data_train/
 .pytest_cache/
 # 测试临时目录（conftest.py 固定到项目内，避免受限环境里自动建目录被拦截）
 .pytest_tmp/
+# 端到端检查的临时数据库（e2e_check.py 建在项目内，同上原因）
+.e2e_tmp/
 
 # 自动化任务运行记忆（工具生成，非项目资产）
 .workbuddy/
