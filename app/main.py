@@ -12,7 +12,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app import __version__
 from app.config import SETTINGS
@@ -34,7 +34,25 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 
 
 class ChatRequest(BaseModel):
+    """一轮用户输入。
+
+    `min_length=1` 只保证「至少一个字符」，管不住 `"   "`、全角空格、`"\\n\\n"`
+    这类纯空白——它们在 strip 之后才是空串，而校验发生在 strip 之前。若不在这里
+    先 strip 再判空，空串会一路走进世界书扫描、生成与落库：messages 表里留下
+    `('user', '')`，模型那一侧看到的最后一条只剩状态前缀（等于让她对着空气说话），
+    而且空 user 还会占掉滑动窗口的轮次名额。所以在校验层就把这件事了结。
+    """
+
     message: str = Field(..., min_length=1, max_length=2000)
+
+    @field_validator("message")
+    @classmethod
+    def _strip_and_require_text(cls, v: str) -> str:
+        """去掉首尾空白（含全角空格）；去掉后为空则直接判为非法输入。"""
+        v = v.strip()
+        if not v:
+            raise ValueError("消息不能只有空白")
+        return v
 
 
 class ChatResponse(BaseModel):

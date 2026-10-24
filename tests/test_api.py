@@ -357,3 +357,37 @@ def test_retry_count_comes_from_config(client, monkeypatch):
     assert body["reply"] == "碗放着，我来洗。", body["reply"]
     assert "复读（已重生成）" in body["filtered"], body["filtered"]
 
+
+
+def test_blank_message_rejected_without_touching_history(client):
+    """纯空白消息必须在入口就拦掉，不能落库、不能让她对着空气说话。
+
+    缺陷实证（修前）：`ChatRequest.message` 的 `min_length=1` 作用在 strip 之前，
+    所以 `"   "`、全角空格、`"\\n\\n"` 都能通过校验；`chat()` 里 strip 后得到空串，
+    却继续走完整流程——世界书扫描、生成、落库。现场结果是 messages 表里出现
+    `('user', '')`，模型那一侧看到的最后一条只剩 `\\n(你此刻的状态：…)`，
+    等于让她对着一片空白回应，而且空 user 会占掉滑动窗口的轮次名额。
+
+    修法：在 pydantic 校验层先 strip，strip 后为空即拒（422）。
+    """
+    import app.main as m
+
+    for payload in ["   ", "\u3000\u3000", "\n\n", "\t"]:
+        r = client.post("/api/chat", json={"message": payload})
+        assert r.status_code == 422, f"{payload!r} 应被拒绝，实际 {r.status_code}"
+
+    assert m.STATE.store.recent_turns(4) == [], "被拒的请求不能往历史里落任何东西"
+    assert m.STATE.generator.calls == 0, "被拒的请求不能触发模型调用"
+
+
+def test_message_is_stripped_before_storage(client):
+    """前后带空白的正常消息要去掉空白再落库，别把空格带进历史与提示。"""
+    import app.main as m
+
+    r = client.post("/api/chat", json={"message": "  今天加班到十点  "})
+    assert r.status_code == 200
+
+    rows = m.STATE.store.recent_turns(2)
+    assert rows[0]["role"] == "user"
+    assert rows[0]["content"] == "今天加班到十点", rows[0]["content"]
+
