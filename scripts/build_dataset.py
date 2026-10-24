@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from data_factory.scene_defs import STAGE_SCENES, STAGE_WEIGHTS, SCENE_ENTRY  # noqa: E402
+from app.config import SETTINGS  # noqa: E402
 from app.emotion.engine import RELATION_STAGES, load_stage_cards  # noqa: E402
 
 BANKS_DIR = ROOT / "data_factory" / "banks"
@@ -77,16 +78,31 @@ def scene_card(scene: str) -> str:
     return ""
 
 
-def build_system(scene: str, stage: str, _cards: dict, _stage_names: dict) -> str:
-    """完整训练系统提示：人格 + 关系阶段卡 + 当前场景卡。"""
+def build_system(scene: str, stage: str, _cards: dict, _stage_names: dict,
+                 stage_signal: str | None = None) -> str:
+    """完整训练系统提示：人格 + 关系阶段卡（仅旧行为）+ 当前场景卡。
+
+    stage_signal 与线上 app/context.py 取同一个配置键（context.stage_signal）：
+    `user` 时阶段卡不进 system，改由 `stage_prefix()` 拼到紧邻的那条 user 消息里，
+    与线上注入位置一致。两侧必须同构，否则训出来的模型与真实推理对不上。
+    """
+    pos = (stage_signal or SETTINGS["context"].get("stage_signal", "system")).lower()
     parts = [base_system()]
     card = (_cards.get(stage) or {}).get("card", "")
-    if card:
+    if card and pos != "user":
         parts.append(f"【关系阶段】{_stage_names.get(stage, stage)}\n{card.strip()}")
     sc = scene_card(scene)
     if sc:
         parts.append(f"【当前场景】\n{sc}")
     return "\n\n".join(parts)
+
+
+def stage_prefix(stage: str, _cards: dict, _stage_names: dict) -> str:
+    """阶段卡作为「此刻的状态」前缀，拼在训练样本里最后一条 user 消息尾部。"""
+    card = (_cards.get(stage) or {}).get("card", "")
+    if not card:
+        return ""
+    return f"【关系阶段】{_stage_names.get(stage, stage)}\n{card.strip()}"
 
 
 # ── 台词库 ──
@@ -152,8 +168,23 @@ def assemble(stage: str, banks: dict, rng: random.Random,
     return {"stage": stage, "scene": scene, "messages": msgs}
 
 
+def _with_prefix(cand: list[dict], prefix: str) -> list[dict]:
+    """把阶段前缀并进候选样本里紧邻 assistant 的那条 user 消息（与线上同构）。
+
+    只在最后一条 user 上拼，不是每条都拼：线上推理时也只有「这一轮他的那句话」
+    带着状态前缀，历史消息是原样回放的。每条都拼会让模型学会「每句话后面都跟状态」。
+    """
+    out = [dict(x) for x in cand]
+    for i in range(len(out) - 1, -1, -1):
+        if out[i]["role"] == "user":
+            out[i]["content"] = out[i]["content"] + "\n" + prefix
+            return out
+    return out
+
+
 # ── 切样本（真 tokenizer 测量）──
-def to_samples(conv: dict, system: str, count_tokens, max_seq: int) -> tuple[list[dict], int]:
+def to_samples(conv: dict, system: str, count_tokens, max_seq: int,
+               prefix: str = "") -> tuple[list[dict], int]:
     """每轮她的回复切一个样本；返回 (样本列表, 因超长丢弃数)。"""
     samples: list[dict] = []
     dropped = 0
@@ -164,7 +195,7 @@ def to_samples(conv: dict, system: str, count_tokens, max_seq: int) -> tuple[lis
             continue
         msg = {"role": m["role"], "content": clean}
         if m["role"] == "assistant":
-            cand = history + [msg]
+            cand = _with_prefix(history + [msg], prefix) if prefix else history + [msg]
             # 用真 tokenizer 逐条量：模板开销（<|im_start|>role 等）也计入
             total = sum(len(count_tokens(x["content"])) + 8 for x in cand)
             if total <= max_seq:
@@ -182,6 +213,9 @@ def main() -> int:
     ap.add_argument("--max-uses", type=int, default=8, help="同一句台词最多复用次数")
     ap.add_argument("--valid-ratio", type=float, default=0.08, help="验证集对话占比")
     ap.add_argument("--seed", type=int, default=20261023)
+    ap.add_argument("--stage-signal", default=SETTINGS["context"].get("stage_signal", "user"),
+                    choices=("user", "system"),
+                    help="阶段卡注入位置，默认与 config/settings.yaml 同源")
     args = ap.parse_args()
 
     if not BANKS_DIR.exists():
@@ -235,8 +269,11 @@ def main() -> int:
         lens: list[int] = []
         with out_path.open("w", encoding="utf-8") as f:
             for conv in part:
-                system = build_system(conv["scene"], conv["stage"], cards, stage_names)
-                samples, dropped = to_samples(conv, system, count_tokens, args.max_seq)
+                system = build_system(conv["scene"], conv["stage"], cards, stage_names,
+                                      args.stage_signal)
+                prefix = (stage_prefix(conv["stage"], cards, stage_names)
+                          if args.stage_signal == "user" else "")
+                samples, dropped = to_samples(conv, system, count_tokens, args.max_seq, prefix)
                 n_dropped += dropped
                 for s in samples:
                     f.write(json.dumps(s, ensure_ascii=False) + "\n")

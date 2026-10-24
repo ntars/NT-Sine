@@ -51,13 +51,27 @@ def test_minimal_hint_covers_all_stages():
 
 
 def test_stage_messages_shape():
-    """装配结果应是五份 system + user，且 system 里带当前阶段名。"""
+    """装配结果应是五份 system + user，且 system 里带当前阶段名。
+
+    默认位置是 system（实测前移到 user 没有收益，见 app/context.py 文件头）；
+    这条断言守的是「诊断跑的确实是线上那套装配」，位置变了就得跟着变。
+    """
     msgs = build_stage_messages(PROBE)
     assert set(msgs) == set(STAGES)
     for stage, messages in msgs.items():
         assert [m["role"] for m in messages] == ["system", "user"]
         assert "【关系阶段】" in messages[0]["content"]
         assert messages[1]["content"].startswith(PROBE)
+
+
+def test_position_mode_both_positions_differ():
+    """位置开关要真的改变装配结果，否则 position 模式测的是同一份东西。"""
+    in_user = build_stage_messages(PROBE, stage_signal="user")
+    in_system = build_stage_messages(PROBE, stage_signal="system")
+    assert "【关系阶段】" in in_user["cold"][1]["content"]
+    assert "【关系阶段】" not in in_user["cold"][0]["content"]
+    assert "【关系阶段】" in in_system["cold"][0]["content"]
+    assert "【关系阶段】" not in in_system["cold"][1]["content"]
 
 
 def test_probe_hits_l4_praise():

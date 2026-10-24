@@ -30,6 +30,13 @@ sampling:
 context:
   num_ctx: 6144            # 日常 4096 / 正常 6144 / 回忆 8192
   recent_turns: 10         # 滑动窗口轮数（取最近 N 轮原始对话）
+  # 关系阶段卡的注入位置。2026-10-24 实测（scripts/diagnose_stage.py position）：
+  #   探针「你今天真好看」：system 1/5、user 1/5（都塌）；
+  #   探针「加班到十点」：system 3/5、user 2/5（挪到 user 反而更差）。
+  # 即「前移」没有收益，其中一例还降了区分度 → 默认保持 system。
+  # 这个开关留着是为了以后能复验，不是让人随手改；改它必须同步重建数据集
+  # （scripts/build_dataset.py 读同一个键），否则训练与推理不同构。
+  stage_signal: system
 
 worldbook:
   # 总预算硬顶 1600 token（方案 §4.2），超出按 §4.7 优先级淘汰

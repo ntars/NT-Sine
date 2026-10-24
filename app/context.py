@@ -3,7 +3,16 @@
 插入位置（注意力：越靠后影响越强）：
   系统硬约束 → L1 角色锚点 → L6 边界规则 → L2 用户画像 → L4 记忆事件 → L5 当前场景
   → 最近 N 轮原始对话（走 messages 数组）
-  → L3 情感状态 + 当前冲突（拼在最后一条 user 消息尾部 = 最响的位置）
+  → 关系阶段卡 → L3 情感状态 + 当前冲突（拼在最后一条 user 消息尾部 = 最响的位置）
+
+**关系阶段卡的位置：留在 system（做过实验，不是没试过）**。原假设是「system 里 992 字、
+阶段卡只占 12.7%，被稀释到无效，挪到 user 尾部就会生效」。2026-10-24 用
+`scripts/diagnose_stage.py position` 在同一份权重上实测两种位置：被夸探针 1/5 对 1/5、
+加班探针 3/5 对 2/5——**前移没有收益，其中一例还更差**，假设被否掉。
+所以默认值回到 system，`context.stage_signal` 只作复验开关保留。
+真正的杠杆是「占比」而不是「位置」：极简 system 下阶段提示占三分之一时才分得开
+（实验 4），这意味着要动的是 system 的长度，不是卡的位置。
+这段状态无论如何只进请求、不上界面：用户看到的是自己的话，模型看到的是自己的话 + 关系状态。
 
 用户侧记忆（§6.4）：滚动画像与关联召回插在 L2 位置（系统提示区），
 每次对话必带，不进对话记录。
@@ -60,8 +69,15 @@ def build_l5_scene(store: MemoryStore) -> str:
 
 
 def build_messages(user_text: str, assembly: Assembly, emotion: EmotionEngine,
-                   store: MemoryStore, history: list[dict]) -> list[dict]:
-    """组装 OpenAI 格式 messages。L3 情感状态与冲突放在最后（最强影响位）。"""
+                   store: MemoryStore, history: list[dict],
+                   stage_signal: str | None = None) -> list[dict]:
+    """组装 OpenAI 格式 messages。
+
+    stage_signal 决定关系阶段卡注入哪儿：`user`（默认，紧贴用户消息）或 `system`
+    （旧行为，系统提示尾部）。留这个参数是为了让诊断脚本能在同一份权重上做位置
+    A/B，不用改两次代码——线上值取 config/settings.yaml 的 context.stage_signal。
+    """
+    pos = (stage_signal or SETTINGS["context"].get("stage_signal", "system")).lower()
     system_parts = [load_prompt("system")]
 
     # 用户侧记忆（§6.4）：滚动画像 + 关联召回，按方案 §4.5 插在 L2 位置
@@ -82,14 +98,17 @@ def build_messages(user_text: str, assembly: Assembly, emotion: EmotionEngine,
     # L5 当前场景（动态，拼在系统提示尾部 = 背景在前）
     system_parts.append(build_l5_scene(store))
 
-    # 关系阶段（完整行为卡，随相处时间破冰）：放背景层最后。
-    # 与"当下情绪"（L3，拼在 user 尾部）分层——关系是稳定的，情绪是波动的，
-    # 两者混在一处会让模型把"现在有点烦"误当成"关系变了"。
+    # 关系阶段（完整行为卡，随相处时间破冰）。
+    # v3.4.1 起默认注入到紧贴用户消息处（见文件头说明）：原先放在 system 里，
+    # 992 字的 system 中只占 12.7%，实测五阶段输出一字不差。
     # 注入完整卡而非一句话：训练侧注入的是同一份卡，两侧必须同构。
+    stage_block = ""
     stage_card = emotion.stage_card()
     if stage_card:
         stage = emotion.relation_stage
-        system_parts.append(f"【关系阶段】{stage['name']}\n{stage_card}")
+        stage_block = f"【关系阶段】{stage['name']}\n{stage_card}"
+        if pos != "user":
+            system_parts.append(stage_block)
 
     messages: list[dict] = [{"role": "system", "content": "\n\n".join(system_parts)}]
     # 最近 N 轮原始对话（滑动窗口）：一轮 = 用户一句 + 她一句，所以是 2N 条。
@@ -97,8 +116,13 @@ def build_messages(user_text: str, assembly: Assembly, emotion: EmotionEngine,
     for m in history[-int(SETTINGS["context"]["recent_turns"]) * 2:]:
         messages.append({"role": m["role"], "content": m["content"]})
 
-    # L3 情感投影 + 冲突：拼在最后一条 user 消息尾部（§4.5.2 深度 0 的"最响位置"）
+    # 拼在最后一条 user 消息尾部（§4.5.2 深度 0 的"最响位置"），顺序由稳到变：
+    # 关系阶段（稳定）→ 当下情绪（波动）→ 未解决的冲突（最尖锐）。
+    # 阶段放最前而不是最后：它描述的是「你们是什么关系」，紧贴他的话读起来像背景前提；
+    # 情绪放后面，因为它才是「此刻」。
     suffix_parts = []
+    if stage_block and pos == "user":
+        suffix_parts.append(stage_block)
     projection = emotion.project()
     if projection:
         suffix_parts.append(f"(你此刻的状态：{projection})")

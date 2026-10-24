@@ -97,9 +97,10 @@ def gen(model, tokenizer, messages, max_tokens: int = 60) -> str:
     return strip_think(out).strip()
 
 
-def build_stage_messages(probe: str) -> dict[str, list[dict]]:
+def build_stage_messages(probe: str, stage_signal: str | None = None) -> dict[str, list[dict]]:
     """按线上同款链路装配五个阶段的提示：世界书扫描 → 情感状态 → build_messages。
 
+    stage_signal 透传给 build_messages，供 position 模式做位置 A/B。
     临时库放在系统临时目录里，跑完即弃——每个阶段要一个独立的情感状态文件，
     共用一份会互相污染（情感引擎会存档）。
     """
@@ -117,7 +118,8 @@ def build_stage_messages(probe: str) -> dict[str, list[dict]]:
         emotion.state.trust = trust
         store = MemoryStore(Path(tmp) / f"{stage}.db")
         assembly = WorldbookEngine().scan(probe, [])
-        result[stage] = build_messages(probe, assembly, emotion, store, [])
+        result[stage] = build_messages(probe, assembly, emotion, store, [],
+                                       stage_signal=stage_signal)
         store.close()
     return result
 
@@ -216,11 +218,36 @@ def mode_ckpt(args) -> int:
     return 0
 
 
+def mode_position(args) -> int:
+    """阶段卡放 system 还是放 user：同一份权重上的位置 A/B。
+
+    为什么要单独成组：2.30 记录里的「实验 3」说位置不是变量（挪进 user 消息后五阶段
+    仍一字不差），但当时是手工改代码临时跑的，没有留下可复现的实现——过一周就没人能
+    复核。这里把两种位置都跑一遍，把「位置」这一个变量钉死。
+
+    判据：两组的「不同回复数」如果一样，位置就不是杠杆，真正的杠杆只能是占比
+    （实验 4：极简 system 阶段提示占 1/3 才生效）。
+    """
+    model, tok = load(args.adapter)
+    outs: dict[str, dict[str, str]] = {}
+    for pos in ("system", "user"):
+        msgs = build_stage_messages(args.probe, stage_signal=pos)
+        outs[pos] = {stage: gen(model, tok, msgs[stage], args.max_tokens) for stage in STAGES}
+        print(f"\n阶段卡位置 = {pos}")
+        for stage, text in outs[pos].items():
+            print(f"  {stage:11s} {text}")
+        print(f"  不同回复数：{len(set(outs[pos].values()))}/5")
+    same = all(outs["system"][s] == outs["user"][s] for s in STAGES)
+    print(f"\n两种位置逐阶段是否完全相同：{'是（位置不是变量）' if same else '否（位置有影响）'}")
+    return 0
+
+
 MODES = {
     "probe": mode_probe,
     "minimal": mode_minimal,
     "base": mode_base,
     "ckpt": mode_ckpt,
+    "position": mode_position,
 }
 
 

@@ -90,7 +90,13 @@ def test_stage_sentence_present_and_short():
 
 
 def test_stage_injected_into_system_prompt():
-    """阶段句要进系统提示，且不挤掉 L3 情绪投影。"""
+    """默认位置：阶段卡在 system 里，且不挤掉 L3 情绪投影。
+
+    为什么默认在 system：2026-10-24 用 `diagnose_stage.py position` 在同一份权重上
+    实测过「挪到 user 尾部」这条路——被夸探针 1/5 对 1/5、加班探针 3/5 对 2/5，
+    前移没有收益，其中一例还更差。所以回到 system，并把这条结论钉在测试里，
+    免得下次又有人凭直觉把它挪走。
+    """
     with tempfile.TemporaryDirectory() as tmp:
         e = _engine(tmp)
         e.state.active_days, e.state.intimacy, e.state.trust = 14, 40, 50
@@ -105,6 +111,30 @@ def test_stage_injected_into_system_prompt():
         assert e.stage_card() in system
         # L3 情绪投影仍在最后一条 user 消息尾部（分层注入，互不冲突）
         assert "你此刻的状态" in msgs[-1]["content"]
+        assert "【关系阶段】" not in msgs[-1]["content"], "同一份卡不能两边都注入"
+
+
+def test_stage_signal_user_moves_card_to_user_message():
+    """`stage_signal="user"` 时阶段卡要真的搬到 user 消息里：这是 A/B 的开关。
+
+    诊断脚本靠它把「位置」这一个变量单独拎出来；开关失灵，测的就不是位置了。
+    前缀必须拼在用户原话之后，不能把他的话顶掉。
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        e = _engine(tmp)
+        e.state.active_days, e.state.intimacy, e.state.trust = 14, 40, 50
+        store = MemoryStore(Path(tmp) / "t.db")
+        wb = WorldbookEngine()
+        probe = "我今天好累"
+        msgs = build_messages(probe, wb.scan(probe, []), e, store, [],
+                              stage_signal="user")
+        store.close()
+
+        system = msgs[0]["content"]
+        user_msg = msgs[-1]["content"]
+        assert e.stage_card() in user_msg
+        assert "【关系阶段】" not in system
+        assert user_msg.startswith(probe), "用户原话必须完整保留在最前面"
 
 
 # ── 通道交互与精力恢复（2026-10-24 补）──
