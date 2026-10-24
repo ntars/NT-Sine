@@ -208,3 +208,84 @@ def test_beat_pools_tolerates_non_dict_stage_defs(tmp_path, monkeypatch):
     monkeypatch.setattr(bd, "STAGE_SCENES", {"cold": ["吃醋"]})
     _write_cell(tmp_path / "cold" / "吃醋.jsonl", [("react", "jiujiu", "……哦。")])
     assert bd.beat_pools() == []
+
+
+# ── 估算口径必须是「期望值」，不是「上界」 ──
+# 背景：2026-10-24 三轮验收时发现，原式 `min(1.0, 唯一数 / 预期样本数)` 在池子
+# 一大就恒等于 1.0，全库显示 100%，看着像问题解决了，其实只是把尺子顶到头。
+
+def test_expected_unique_rate_matches_known_measurement():
+    """用二轮实测值反验公式：U=19、N=128 时实测独立率 15%，公式应给 14.8%。"""
+    rate = bd.expected_unique_rate(19, 128)
+    assert abs(rate - 0.148) < 0.005, rate
+
+
+def test_expected_unique_rate_never_saturates_when_pool_is_large():
+    """池子远大于样本数时也必须低于 1.0——有放回抽样必然抽到重复。
+
+    这是本条的核心：改成 min(1, U/N) 会立刻给出 1.0，指标就废了。
+    """
+    rate = bd.expected_unique_rate(63, 24)
+    assert rate < 1.0, f"池子够大也不该是 100%，实际 {rate}"
+    assert rate > 0.75, f"63 条池子抽 24 次，唯一率不该低到 {rate}"
+
+
+def test_expected_unique_rate_single_line_pool():
+    """池子只有 1 条时，无论抽几次唯一率都是 1/N（全是同一句）。"""
+    assert bd.expected_unique_rate(1, 10) == 0.1
+    assert bd.expected_unique_rate(1, 1) == 1.0
+
+
+def test_expected_unique_rate_guards_zero():
+    """空池或零次抽样返回 0，不能除零报错。"""
+    assert bd.expected_unique_rate(0, 10) == 0.0
+    assert bd.expected_unique_rate(10, 0) == 0.0
+
+
+def test_measured_report_counts_by_stage(tmp_path, monkeypatch, capsys):
+    """实测口径按 system 里的阶段名分组，数最后一个 assistant 的原文。"""
+    import json
+
+    data_dir = tmp_path / "data_train"
+    data_dir.mkdir()
+    rows = [
+        {"messages": [
+            {"role": "system", "content": "开头\n【关系阶段】冷淡\n正文"},
+            {"role": "user", "content": "在吗"},
+            {"role": "assistant", "content": "……有事？"},
+        ]},
+        {"messages": [
+            {"role": "system", "content": "开头\n【关系阶段】冷淡\n正文"},
+            {"role": "user", "content": "忙吗"},
+            {"role": "assistant", "content": "……有事？"},
+        ]},
+        {"messages": [
+            {"role": "system", "content": "开头\n【关系阶段】病娇\n正文"},
+            {"role": "user", "content": "在吗"},
+            {"role": "assistant", "content": "你在哪。"},
+        ]},
+    ]
+    (data_dir / "train.jsonl").write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
+        encoding="utf-8")
+    monkeypatch.setattr(bd, "ROOT", tmp_path)
+
+    assert bd.measured_report() == 0
+    out = capsys.readouterr().out
+    # 冷淡：2 个样本、1 种回复（独立率 50%）；病娇：1 个样本、1 种回复
+    assert "| 冷淡 | 2 | 1 |" in out, out
+    assert "| 病娇 | 1 | 1 |" in out, out
+    assert "整体：3 样本 / 2 唯一" in out, out
+
+
+def test_measured_report_missing_dataset_is_loud(tmp_path, monkeypatch, capsys):
+    """训练集不存在时要报错退出，不能静默给 0。"""
+    monkeypatch.setattr(bd, "ROOT", tmp_path)
+    assert bd.measured_report() == 1
+    assert "找不到训练集" in capsys.readouterr().err
+
+
+# ── 估算口径必须是「期望值」，不是「上界」 ──
+# 背景：2026-10-24 三轮验收时发现，原式 `min(1.0, 唯一数 / 预期样本数)` 在池子
+# 一大就恒等于 1.0，全库显示 100%，看着像问题解决了，其实只是把尺子顶到头。
+

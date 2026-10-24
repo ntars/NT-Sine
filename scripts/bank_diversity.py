@@ -12,7 +12,18 @@
   - 样本级独立率 = 该格唯一台词数 / 该格在训练集里出现的次数。样本可以被反复
     采样（同一个池子被 30 段对话共用），所以这个数才会掉到 24%。
 本脚本默认两个都算：库内独立率从台词文件直接算；样本级独立率按训练集的抽样方式
-估算（每格池大小 ÷ 该格预期样本数），并明确标注是估算值。
+**估算**（有放回抽样的期望唯一率），并明确标注是估算值。
+
+**口径修正（2026-10-24，三轮验收时发现）**：估算公式此前写成
+`min(1.0, 唯一数 / 预期样本数)`，这是「无放回、且池子够大」时的**上界**，不是期望值。
+池子一旦大于样本数，这个式子必然等于 1.0，于是全库都显示 100%——
+看着像问题解决了，其实只是把尺子顶到了头。真实情况是：从 63 条池子里有放回抽
+24 次，期望唯一率约 84%（会重复抽到），不是 100%。现改为原方案里本该用的
+抽样模型 `U × (1 − (1 − 1/U)^N) / N`（U = 池大小、N = 样本数），并用实测数据
+校验过：U=19、N=128 时该式给 14.8%，与二轮实测的 15% 吻合。
+
+**要最准的数就用 `--measured`**：直接读 `data_train/train.jsonl`，按 system 里的
+阶段名分组，数「最后一个 assistant 的原文」有多少种，不做任何估算假设。
 
 **为什么还要按节拍看**（2026-10-24 修正）：`assemble()` 是**逐节拍**从池子里
 `rng.choice` 的，所以真正的抽样单位不是「整格 60 条」，而是
@@ -163,6 +174,21 @@ def expected_samples(stage: str, total_cells_in_stage: int, total_convs: int) ->
     return per_cell_convs * 2
 
 
+def expected_unique_rate(pool: int, draws: int) -> float:
+    """从 `pool` 条台词里有放回抽 `draws` 次，期望的「唯一句数 / 抽数」。
+
+    这条式子是本脚本的口径要害，别改成 `min(1, pool/draws)`：
+    后者是「无放回」的上界，池子一大就恒等于 1.0，指标直接失效。
+    有放回抽样下每次抽不到重复的概率递减，唯一率必然低于上界——
+    公式 `U × (1 − (1 − 1/U)^N) / N` 就是它的期望值。
+    """
+    if pool <= 0 or draws <= 0:
+        return 0.0
+    if pool == 1:
+        return 1.0 / draws
+    return pool * (1.0 - (1.0 - 1.0 / pool) ** draws) / draws
+
+
 def report(rows: list[dict], total_convs: int = 300) -> None:
     cells_by_stage: dict[str, int] = defaultdict(int)
     for r in rows:
@@ -173,7 +199,7 @@ def report(rows: list[dict], total_convs: int = 300) -> None:
     rates: list[float] = []
     for r in sorted(rows, key=lambda x: (x["stage"], x["scene"])):
         exp = expected_samples(r["stage"], cells_by_stage[r["stage"]], total_convs)
-        sample_rate = min(1.0, r["unique"] / exp) if exp else 0.0
+        sample_rate = expected_unique_rate(r["unique"], exp) if exp else 0.0
         if r["hers"]:
             rates.append(sample_rate)
         flag = "" if r["exists"] else "（缺文件）"
@@ -183,6 +209,7 @@ def report(rows: list[dict], total_convs: int = 300) -> None:
     rates.sort()
     p50 = rates[len(rates) // 2] * 100 if rates else 0.0
     print(f"\n估算样本级独立率中位数：**{p50:.0f}%**（扩写前基线 {BASELINE_SAMPLE_RATE * 100:.0f}%）")
+    print("（估算口径按有放回抽样模型算期望值，不是上界；要真实数字用 `--measured`）")
     total_rows = sum(r["rows"] for r in rows)
     total_dups = sum(r["dups"] for r in rows)
     print(f"全库 {total_rows} 条，其中她的台词重复 {total_dups} 条")
@@ -229,6 +256,61 @@ def beats_check(pools: list[dict]) -> int:
     return 0
 
 
+def measured_report(stage_filter: str | None = None) -> int:
+    """实测训练集里的样本多样性——不做任何估算，直接数真东西。
+
+    做法：读 `data_train/train.jsonl`，从 system 里取【关系阶段】后面的阶段名分组，
+    每条样本取「最后一个 assistant 的原文」作为她的回复，数有多少种不同的回复。
+    这是模型真正看到的东西，比任何估算都靠得住。
+    """
+    import json
+    import re
+
+    path = ROOT / "data_train" / "train.jsonl"
+    if not path.exists():
+        print(f"找不到训练集：{path}，先跑 scripts/build_dataset.py", file=sys.stderr)
+        return 1
+
+    pat = re.compile(r"【关系阶段】([^\n]+)")
+    stat: dict[str, dict] = defaultdict(lambda: {"n": 0, "uniq": set(), "cnt": Counter()})
+    total = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        msgs = json.loads(line)["messages"]
+        sysmsg = next((m["content"] for m in msgs if m["role"] == "system"), "")
+        found = pat.search(sysmsg)
+        stage = found.group(1).strip() if found else "未知"
+        if stage_filter and stage != stage_filter:
+            continue
+        replies = [m["content"] for m in msgs if m["role"] == "assistant"]
+        if not replies:
+            continue
+        last = replies[-1]
+        stat[stage]["n"] += 1
+        stat[stage]["uniq"].add(last)
+        stat[stage]["cnt"][last] += 1
+        total += 1
+
+    if not total:
+        print("训练集里没有可用样本", file=sys.stderr)
+        return 1
+
+    print("| 阶段 | 样本 | 唯一回复 | 样本级独立率 | 句均强化次数 | 最高频句（次数） |")
+    print("|---|---:|---:|---:|---:|---|")
+    tot_uniq = 0
+    for stage, d in sorted(stat.items(), key=lambda kv: -kv[1]["n"]):
+        uniq = len(d["uniq"])
+        tot_uniq += uniq
+        top, times = d["cnt"].most_common(1)[0]
+        print(f"| {stage} | {d['n']} | {uniq} | {uniq / d['n'] * 100:.1f}% | "
+              f"{d['n'] / uniq:.2f} | {top}（{times}） |")
+    print(f"\n整体：{total} 样本 / {tot_uniq} 唯一 = {tot_uniq / total * 100:.1f}%，"
+          f"句均强化 {total / tot_uniq:.2f} 次（目标 ≤2.5）")
+    print(f"对照：扩写前样本级独立率中位数 {BASELINE_SAMPLE_RATE * 100:.0f}%")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="台词库多样性度量")
     ap.add_argument("--stage", default=None, help="只看某个阶段")
@@ -237,7 +319,12 @@ def main() -> int:
     ap.add_argument("--beats", action="store_true",
                     help="按节拍口径检查（真正的抽样单位），不达标退出码 1")
     ap.add_argument("--beats-report", action="store_true", help="打印节拍池一览表")
+    ap.add_argument("--measured", action="store_true",
+                    help="直接读 data_train 实测样本级独立率（不估算）")
     args = ap.parse_args()
+
+    if args.measured:
+        return measured_report(args.stage)
 
     if args.beats or args.beats_report:
         pools = beat_pools(args.stage)
