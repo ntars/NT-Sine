@@ -97,6 +97,22 @@ class MemoryStore:
         """
         return self.recent_messages(max(1, int(turns)) * 2)
 
+    def messages_after(self, after_id: int = 0, limit: int = 50) -> list[dict]:
+        """取 id 大于 after_id 的消息（旧 → 新），供客户端增量轮询。
+
+        为什么需要它：她"主动开口"的那句由后台循环写进 messages 表，
+        但对外接口只有只读判定（会不会开口）与情感状态（不含正文），
+        界面上永远看不见她说的话——主动消息这条链路此前通到一半就断了。
+        客户端拿一次 last_id，之后带着它轮询即可只取新增部分。
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, role, content, ts FROM messages WHERE id > ? "
+                "ORDER BY id ASC LIMIT ?",
+                (int(after_id), max(1, int(limit))),
+            ).fetchall()
+        return [{"id": r[0], "role": r[1], "content": r[2], "ts": r[3]} for r in rows]
+
     def last_interaction_ts(self) -> float | None:
         with self._lock:
             row = self._conn.execute(

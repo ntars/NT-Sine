@@ -50,7 +50,6 @@ class NTState:
     """进程内共享状态（单用户单场景，不需要多进程）。"""
 
     def __init__(self):
-        app_cfg = SETTINGS["app"]
         self.store = MemoryStore(SETTINGS["app"]["db_path"])
         self.emotion = EmotionEngine(SETTINGS["app"]["emotion_state_path"])
         self.worldbook = WorldbookEngine()
@@ -152,21 +151,27 @@ def chat(req: ChatRequest) -> ChatResponse:
         reply = "……我有点累，先不说了。"
         gen_failed = True
 
-    # 4. 输出过滤（顺序不可反）；复读/跪舔最多重生成一次
+    # 4. 输出过滤（顺序不可反）；复读/过度跪舔按配置重生成
+    #    重生成次数此前写死在代码里，配置里的 retry_on_repetition 没人读——
+    #    改配置毫无作用，等于这个参数不存在。改为按配置循环。
     history_replies = [m["content"] for m in recent if m["role"] == "assistant"]
     result = filter_output(reply, history=history_replies)
-    retried = bool(result.need_retry and not result.blocked)
-    if retried:
+    max_retry = max(0, int(SETTINGS["filter"]["retry_on_repetition"]))
+    retried = False
+    for _ in range(max_retry):
+        if not result.need_retry or result.blocked:
+            break
+        retried = True
         try:
             retry_text = state.generator.chat(messages)
-            retry_result = filter_output(retry_text, history=history_replies)
-            # 重生成成功时也要给"判过复读"留痕：它说明模型这一轮状态不稳，
-            # 情感层据此降低上下文压力，调试台也能看见（覆盖掉就什么也查不到）。
-            if not retry_result.need_retry:
-                retry_result.triggered = ["复读（已重生成）"] + retry_result.triggered
-            result = retry_result
         except GenerationError:
-            pass
+            break   # 重生成失败就沿用这一轮已有的文本，不把回复弄丢
+        retry_result = filter_output(retry_text, history=history_replies)
+        # 重生成成功时也要给"判过复读"留痕：它说明模型这一轮状态不稳，
+        # 情感层据此降低上下文压力，调试台也能看见（覆盖掉就什么也查不到）。
+        if not retry_result.need_retry:
+            retry_result.triggered = ["复读（已重生成）"] + retry_result.triggered
+        result = retry_result
     # 4.5 重生成后仍然是空正文：模型这一轮确实没给出可用的话（只吐了思考块，
     #     或整段旁白被裁空）。用一条符合人设的短句兜住，否则前端会播出一段空白。
     #     这句不写进历史——与生成失败同理，写进去下一轮会被复读过滤器拦住，
@@ -278,6 +283,20 @@ def proactive_check() -> dict:
     return {"should": decision.should, "reason": decision.reason, "message": decision.message}
 
 
+@app.get("/api/messages")
+def list_messages(after_id: int = 0, limit: int = 50) -> dict:
+    """按 id 增量取消息（旧 → 新），客户端轮询用。
+
+    补的是「她主动开口却没人看得见」这条断掉的链路：后台循环把她的话写进
+    messages 表，此前对外只有「会不会开口」的只读判定与不含正文的情感状态，
+    界面上永远拿不到那句话。现在客户端记住 last_id、带着它轮询即可，
+    既取到新对话，也取到她主动说的那句。
+    """
+    state = _get_state()
+    rows = state.store.messages_after(after_id, min(max(1, limit), 200))
+    return {"messages": rows, "last_id": rows[-1]["id"] if rows else after_id}
+
+
 @app.post("/api/diary")
 def diary_now() -> dict:
     """手动触发一篇日记（调试用；每日自动在夜间循环写）。"""
@@ -292,3 +311,13 @@ def diary_now() -> dict:
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "version": __version__}
+
+
+if __name__ == "__main__":
+    # 直接 `python -m app.main` 也能起服务，主机与端口从 config/settings.yaml 读。
+    # 加这一段是因为 `app.host` / `app.port` 两个配置项此前全仓无人读取——
+    # 在配置里改端口不会生效，等于配置在撒谎。uvicorn 是既有依赖，不新增包。
+    import uvicorn
+
+    uvicorn.run(app, host=SETTINGS["app"]["host"], port=int(SETTINGS["app"]["port"]))
+

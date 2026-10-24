@@ -70,7 +70,8 @@ emotion:
   trust_max_loss: 8        # 信任崩得快
   trust_max_gain: 1.5
   energy_decay_per_hour: 15  # 连续聊 1 小时精力 -15
-  intimacy_stages: 5
+  # 五阶段的判定门槛（天数 / 亲密 / 信任）写在 app/emotion/engine.py 的
+  # RELATION_STAGES 里，不在配置中重复一份——两处各写一份必然漂移。
   # 同类亲密事件 24 小时内只记一次：防止"我喜欢你"说五遍就顶半个月
   intimacy_event_cooldown_hours: 24
 
@@ -97,8 +98,9 @@ filter:
 proactive:
   check_interval_min: 10   # 异步循环检查间隔（零第三方调度器）
   min_gap_h: 2             # 距上次对话 < 2h 不主动
-  normal_gap_h: [6, 14]    # 6-14 小时可日常问候
-  after_h: 36              # >36h 语气要"有点在意"而非责问
+  # 原方案里的「6-14 小时日常问候 / >36 小时语气转为有点在意」两级语气尚未实现，
+  # 这里不再保留参数：留着会让人以为改数字就能改行为，实际无人读取。
+  # 闸门一当前只有 min_gap_h 一道间隔判断，语气分级在 compose() 里也没有分支。
   night_quiet: [1, 6]      # 1-6 点绝不主动
   daily_cap: 3             # 今天已主动 ≥3 次则停
   abandon_rate: 0.35       # 30-40% 触发"她自己觉得算了"

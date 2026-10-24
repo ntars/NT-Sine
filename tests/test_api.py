@@ -299,3 +299,56 @@ def test_state_exposes_relation_stage(client):
     body = client.get("/api/state").json()
     assert body["stage"]["key"] in ("cold", "thawing", "attached", "possessive", "yandere")
     assert body["stage"]["name"]
+
+
+def test_messages_endpoint_polls_incrementally(client):
+    """增量取消息：带 last_id 轮询只拿新增的那几条，且顺序是旧 → 新。
+
+    这条端点补的是「她主动开口却没人看得见」：后台循环把她的话写进 messages，
+    此前对外没有任何取用通道，等于主动消息这条链路通到一半。
+    """
+    client.post("/api/chat", json={"message": "回来了"})
+    first = client.get("/api/messages").json()
+    assert [m["role"] for m in first["messages"]] == ["user", "assistant"]
+    assert first["last_id"] == first["messages"][-1]["id"]
+
+    client.post("/api/chat", json={"message": "今天很冷"})
+    delta = client.get("/api/messages", params={"after_id": first["last_id"]}).json()
+    assert [m["role"] for m in delta["messages"]] == ["user", "assistant"], delta
+    assert delta["messages"][0]["id"] > first["last_id"]
+
+    ids = [m["id"] for m in delta["messages"]]
+    assert ids == sorted(ids), "必须旧 → 新，前端按顺序上屏"
+
+
+def test_messages_endpoint_delivers_proactive_line(client):
+    """她的主动消息落库之后，客户端必须能从接口取到正文。
+
+    后台循环写库与客户端取消息是两段，任何一段断掉，用户都看不到她开口。
+    """
+    import app.main as m
+
+    m.STATE.store.add_message("assistant", "降温了，你那破身子骨注意点。")
+    body = client.get("/api/messages").json()
+    assert body["messages"], "主动消息落库后取不到，等于这条功能不存在"
+    assert body["messages"][-1]["content"] == "降温了，你那破身子骨注意点。"
+
+
+def test_retry_count_comes_from_config(client, monkeypatch):
+    """重生成次数必须由配置决定：配 2 次就要真的重生成两次。
+
+    此前次数写死在代码里（只重生成一次），配置项 retry_on_repetition 没人读——
+    改配置毫无作用，参数等于不存在。这里配 2，队列给「重复 / 重复 / 正常」，
+    期望调用 3 次（首轮 1 次 + 重生成 2 次）。
+    """
+    import app.main as m
+
+    monkeypatch.setitem(SETTINGS["filter"], "retry_on_repetition", 2)
+    client.post("/api/chat", json={"message": "说句话"})          # 第 1 次调用
+    m.STATE.generator.queue = [DEFAULT_REPLY, DEFAULT_REPLY, "碗放着，我来洗。"]
+    body = client.post("/api/chat", json={"message": "再说一句"}).json()
+
+    assert m.STATE.generator.calls == 4, "首轮 1 次 + 本轮 3 次（首发 + 2 次重生成）"
+    assert body["reply"] == "碗放着，我来洗。", body["reply"]
+    assert "复读（已重生成）" in body["filtered"], body["filtered"]
+
