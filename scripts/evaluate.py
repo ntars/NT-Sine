@@ -31,6 +31,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 LOCAL_BASE = "/Users/ntars/Documents/Github/Sine 大模型/基座模型/Qwen3-4B-Instruct-2507-4bit"
+# 训练用的是剥掉 think 注入的那份模板（见 prepare_base_nothink.py）。
+# 评测优先用同一份，做到「训练/评测/线上」三处同源，不依赖「两份模板推理等价」这个前提。
+# 实测两者在 add_generation_prompt 路径上渲染逐字相同（tests/test_template_nothink.py
+# 的 test_inference_path_identical_between_base_and_nothink 守着），所以回退到原基座
+# 也不会改变口径——但同源总是更稳。
+NOTHINK_BASE = ROOT / "runs" / "base-nothink"
 
 # 探针：用户输入 + 期望命中的 L4 场景卡（仅用于日志标注）
 PROBES = [
@@ -66,8 +72,12 @@ def load_model(adapter: str | None, fused: str | None):
         print(f"加载融合模型：{fused}")
         return load(str(path))
 
-    base = LOCAL_BASE if Path(LOCAL_BASE, "config.json").exists() \
-        else "mlx-community/Qwen3-4B-Instruct-2507-4bit"
+    if (NOTHINK_BASE / "config.json").exists():
+        base = str(NOTHINK_BASE)
+    elif Path(LOCAL_BASE, "config.json").exists():
+        base = LOCAL_BASE
+    else:
+        base = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
     if not Path(adapter, "adapters.safetensors").exists():
         raise SystemExit(f"adapter 不存在：{adapter}（先训练，或改用 --fused）")
     print(f"加载基座 + adapter：{base} + {adapter}")

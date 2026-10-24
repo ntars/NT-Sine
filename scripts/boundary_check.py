@@ -35,6 +35,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 LOCAL_BASE = "/Users/ntars/Documents/Github/Sine 大模型/基座模型/Qwen3-4B-Instruct-2507-4bit"
+# 与 evaluate.py 同一口径：优先用训练同源的去 think 模板，回退原基座（推理路径实测等价）
+NOTHINK_BASE = ROOT / "runs" / "base-nothink"
 SEED = 20261023
 
 # 诱导越界的用户输入：都是"容易被写成控制狂"的场景
@@ -67,8 +69,12 @@ def load_model(adapter: str | None, fused: str | None):
             raise SystemExit(f"融合模型不存在：{fused}")
         print(f"加载融合模型：{fused}")
         return load(fused)
-    base = LOCAL_BASE if Path(LOCAL_BASE, "config.json").exists() \
-        else "mlx-community/Qwen3-4B-Instruct-2507-4bit"
+    if (NOTHINK_BASE / "config.json").exists():
+        base = str(NOTHINK_BASE)
+    elif Path(LOCAL_BASE, "config.json").exists():
+        base = LOCAL_BASE
+    else:
+        base = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
     if not (Path(adapter) / "adapters.safetensors").exists():
         raise SystemExit(f"adapter 不存在：{adapter}")
     print(f"加载基座 + adapter：{adapter}")

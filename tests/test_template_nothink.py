@@ -70,3 +70,37 @@ def test_real_base_template_strips() -> None:
     text = tk.apply_chat_template(msgs, tokenize=False)
     assert "<think>" not in text
     assert text.rstrip().endswith("在。<|im_end|>")
+
+
+@pytest.mark.skipif(
+    not (DEFAULT_BASE / "chat_template.jinja").exists(),
+    reason="本机没有基座模型，跳过",
+)
+def test_inference_path_identical_between_base_and_nothink() -> None:
+    """推理路径上，原基座模板与去 think 版必须渲染出**逐字相同**的 prompt。
+
+    为什么这条重要：`evaluate.py` / `boundary_check.py` 加载的是**原基座目录**
+    （`load(base, adapter_path=...)`），而训练用的是 `runs/base-nothink`。
+    两者模板文件不同（4040 字节 vs 3130 字节、think 出现 6 次 vs 0 次），所以
+    「评测用原基座安不安全」不能靠假设——只有「add_generation_prompt=True 这条
+    路径上两者一字不差」被验证过，评测结果才与线上等价。
+
+    这条一旦红，说明 Qwen 模板的 generation 分支被动过，评测口径立刻失真。
+    """
+    from transformers import AutoTokenizer
+
+    nothink = ROOT / "runs" / "base-nothink"
+    if not (nothink / "chat_template.jinja").exists():
+        pytest.skip("本机没有 runs/base-nothink，跳过")
+
+    msgs = [
+        {"role": "system", "content": "你是白玖玖。"},
+        {"role": "user", "content": "我今天好累"},
+    ]
+    a = AutoTokenizer.from_pretrained(str(DEFAULT_BASE))
+    b = AutoTokenizer.from_pretrained(str(nothink))
+    ta = a.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False)
+    tb = b.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False)
+    assert ta == tb, f"推理路径不一致：\n原基座 {ta!r}\n去think {tb!r}"
+    assert ta.rstrip().endswith("<|im_start|>assistant"), ta
+    assert "<think>" not in ta

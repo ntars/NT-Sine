@@ -60,12 +60,25 @@ MINIMAL_HINT = {
 }
 
 BASE_FALLBACK = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
+NOTHINK_BASE = ROOT / "runs" / "base-nothink"
 
 
 def base_path() -> str:
-    """本机优先用 4bit 基座；换机器时退回社区权重，保证脚本不因路径写死而废。"""
+    """基座路径，按「训练同源优先」的顺序选。
+
+    1. `runs/base-nothink`：训练用的那份（模板剥掉了 think 注入），最准；
+    2. 本机 4bit 基座：推理路径实测与第 1 项逐字相同（见
+       `tests/test_template_nothink.py::test_inference_path_identical_between_base_and_nothink`）；
+    3. 社区权重：换机器时的最后兜底，**会联网下载**，与「全离线」原则冲突，
+       只在前两项都不存在时才会走到，并在输出里明示。
+    """
+    if (NOTHINK_BASE / "config.json").exists():
+        return str(NOTHINK_BASE)
     local = "/Users/ntars/Documents/Github/Sine 大模型/基座模型/Qwen3-4B-Instruct-2507-4bit"
-    return local if Path(local, "config.json").exists() else BASE_FALLBACK
+    if Path(local, "config.json").exists():
+        return local
+    print(f"注意：本机没有基座，将联网拉取 {BASE_FALLBACK}", file=sys.stderr)
+    return BASE_FALLBACK
 
 
 def load(adapter: str | None = None):
