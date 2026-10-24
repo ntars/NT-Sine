@@ -120,3 +120,91 @@ def test_check_mode_passes_when_all_cells_are_full(tmp_path, monkeypatch):
     ])
     monkeypatch.setattr(sys, "argv", ["bank_diversity.py", "--check"])
     assert bd.main() == 0
+
+
+# ── 节拍口径：真正的抽样单位是 (阶段, 场景, 节拍)，不是整格 ──
+# 背景：`assemble()` 逐节拍 `rng.choice(pool)`，一格里四个节拍各 4 条时，
+# 她在每个位置只会说 4 种话。整格凑到 60 条而节拍不均，复读不会改善。
+
+def test_beat_pools_split_by_beat_not_whole_cell(tmp_path, monkeypatch):
+    """同一格里两个节拍的条数要分开数，不能合并成「整格 6 条」。"""
+    monkeypatch.setattr(bd, "BANKS_DIR", tmp_path)
+    monkeypatch.setattr(bd, "STAGE_SCENES", {}, raising=False)
+    monkeypatch.setattr(bd, "STAGE_SCENES",
+                        {"cold": {"吃醋": ["greet", "react", "close"]}})
+    _write_cell(tmp_path / "cold" / "吃醋.jsonl", [
+        ("react", "jiujiu", "……她是谁。"),
+        ("react", "jiujiu", "你回得很快。"),
+        ("close", "jiujiu", "……随你。"),
+        ("react", "user", "同事而已。"),
+    ])
+    pools = {(p["scene"], p["beat"]): p for p in bd.beat_pools()}
+    assert pools[("吃醋", "react")]["hers"] == 2
+    assert pools[("吃醋", "close")]["hers"] == 1
+    # greet 由 OPENERS 承担，不该出现在池子里（否则会误报缺 15 条）
+    assert ("吃醋", "greet") not in pools
+
+
+def test_beat_pools_counts_only_her_lines(tmp_path, monkeypatch):
+    """用户追问条数单独记在 usr 里，不能算进 hers——否则池子看着够了、她其实没几句可选。"""
+    monkeypatch.setattr(bd, "BANKS_DIR", tmp_path)
+    monkeypatch.setattr(bd, "STAGE_SCENES", {"cold": {"吃醋": ["react", "close"]}})
+    _write_cell(tmp_path / "cold" / "吃醋.jsonl", [
+        ("react", "jiujiu", "……哦。"),
+        ("react", "user", "嗯。"),
+        ("react", "user", "真的。"),
+        ("close", "jiujiu", "……随你。"),
+    ])
+    p = {x["beat"]: x for x in bd.beat_pools()}["react"]
+    assert p["hers"] == 1
+    assert p["usr"] == 2
+
+
+def test_beat_pools_flags_defined_but_empty_beat(tmp_path, monkeypatch):
+    """定义里写了、文件里一条都没有的节拍要标 missing_def——这是最严重的缺口。"""
+    monkeypatch.setattr(bd, "BANKS_DIR", tmp_path)
+    monkeypatch.setattr(bd, "STAGE_SCENES",
+                        {"cold": {"吃醋": ["react", "push", "close"]}})
+    _write_cell(tmp_path / "cold" / "吃醋.jsonl", [("react", "jiujiu", "……哦。")])
+    pools = {p["beat"]: p for p in bd.beat_pools()}
+    assert pools["push"]["missing_def"] is True
+    assert pools["push"]["hers"] == 0
+
+
+def test_beats_check_fails_below_min(tmp_path, monkeypatch, capsys):
+    """任一池不足 BEATS_MIN 就必须返回 1，否则闸门形同虚设。"""
+    monkeypatch.setattr(bd, "BANKS_DIR", tmp_path)
+    monkeypatch.setattr(bd, "STAGE_SCENES", {"cold": {"吃醋": ["react", "close"]}})
+    monkeypatch.setattr(bd, "BEATS_MIN", 2)
+    _write_cell(tmp_path / "cold" / "吃醋.jsonl", [("react", "jiujiu", "……哦。")])
+    monkeypatch.setattr(sys, "argv", ["bank_diversity.py", "--beats"])
+    assert bd.main() == 1
+    out = capsys.readouterr().out
+    assert "待补：cold/吃醋/react" in out and "缺 1" in out
+
+
+def test_beats_check_passes_when_all_pools_full(tmp_path, monkeypatch):
+    """全部达线且无重复时返回 0，扩写完可直接拿它当闸门。"""
+    monkeypatch.setattr(bd, "BANKS_DIR", tmp_path)
+    monkeypatch.setattr(bd, "STAGE_SCENES", {"cold": {"吃醋": ["react", "close"]}})
+    monkeypatch.setattr(bd, "BEATS_MIN", 2)
+    _write_cell(tmp_path / "cold" / "吃醋.jsonl", [
+        ("react", "jiujiu", "……她是谁。"),
+        ("react", "jiujiu", "你回得很快。"),
+        ("close", "jiujiu", "……随你。"),
+        ("close", "jiujiu", "……汤要凉了。"),
+    ])
+    monkeypatch.setattr(sys, "argv", ["bank_diversity.py", "--beats"])
+    assert bd.main() == 0
+
+
+def test_beat_pools_tolerates_non_dict_stage_defs(tmp_path, monkeypatch):
+    """STAGE_SCENES 被替换成旧形状（阶段 → 场景列表）时要跳过而不是崩。
+
+    旧用例把 STAGE_SCENES 换成 {"cold": ["吃醋"]} 这种形状跑 --check，
+    节拍口径不能因为拿不到节拍序列就抛异常。
+    """
+    monkeypatch.setattr(bd, "BANKS_DIR", tmp_path)
+    monkeypatch.setattr(bd, "STAGE_SCENES", {"cold": ["吃醋"]})
+    _write_cell(tmp_path / "cold" / "吃醋.jsonl", [("react", "jiujiu", "……哦。")])
+    assert bd.beat_pools() == []

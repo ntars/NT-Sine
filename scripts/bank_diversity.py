@@ -14,9 +14,18 @@
 本脚本默认两个都算：库内独立率从台词文件直接算；样本级独立率按训练集的抽样方式
 估算（每格池大小 ÷ 该格预期样本数），并明确标注是估算值。
 
+**为什么还要按节拍看**（2026-10-24 修正）：`assemble()` 是**逐节拍**从池子里
+`rng.choice` 的，所以真正的抽样单位不是「整格 60 条」，而是
+「(阶段, 场景, 节拍, 角色) 这个池子有多少条」。一格凑到 60 条、但四个节拍各分到
+15 条，和四个节拍各 4 条是完全不同的两件事——后者她在那个位置只会说 4 种话。
+故本脚本提供两把尺子：
+  - `--check`：整格口径（历史口径，保留用于对比）
+  - `--beats`：节拍口径（**扩写的验收闸门**），每池 ≥ BEATS_MIN 条
+
 用法：
   python scripts/bank_diversity.py            # 全库一览
-  python scripts/bank_diversity.py --check    # 只看是否达到扩写目标，不达标退出码 1
+  python scripts/bank_diversity.py --check    # 整格口径是否达标，不达标退出码 1
+  python scripts/bank_diversity.py --beats    # 节拍口径是否达标，不达标退出码 1
   python scripts/bank_diversity.py --stage cold
 """
 
@@ -36,6 +45,11 @@ BANKS_DIR = ROOT / "data_factory" / "banks"
 
 # 动作 1 的目标：每（阶段 × 场景）从 25 条扩到 60 条
 TARGET_PER_CELL = 60
+# 节拍口径的目标：每个 (阶段, 场景, 节拍) 她的池子至少这么多条。
+# 15 这个数的来历：`assemble()` 对每条台词有「同一段对话里最多用 2 次」的约束，
+# 池子小于 15 时，12 次重抽的窗口里很容易全撞到已用过的，`pick()` 直接放弃该节拍；
+# 池子到 15 条时，一段对话 3–4 个节拍各抽一条，重复率才能压到句均 2 次以内。
+BEATS_MIN = 15
 # 扩写前的基线（2.30 记录）：样本级独立率中位数
 BASELINE_SAMPLE_RATE = 0.24
 
@@ -101,6 +115,41 @@ def collect(stage_filter: str | None = None) -> list[dict]:
     return out
 
 
+def beat_pools(stage_filter: str | None = None) -> list[dict]:
+    """按节拍统计每一格的池子大小——这才是 `assemble()` 真正的抽样单位。
+
+    返回每个 (阶段, 场景, 节拍) 一条记录：
+      hers / unique：该节拍下她的台词条数与去重后的句数
+      usr：同一节拍里用户追问的条数（不参与达标判定，只作参考——
+           用户的台词不进监督目标，它少只影响上下文花样，不影响她学什么）
+      missing_def：定义里写了这个节拍、实际文件里一条都没有（最严重的缺口）
+    """
+    out: list[dict] = []
+    for stage, scenes in STAGE_SCENES.items():
+        if stage_filter and stage != stage_filter:
+            continue
+        # 防御：STAGE_SCENES 的正常形状是 {阶段: {场景: [节拍…]}}，
+        # 若被替换成别的形状（单测里会这么干），跳过而不炸。
+        if not isinstance(scenes, dict):
+            continue
+        for scene, beats in scenes.items():
+            path = BANKS_DIR / stage / f"{scene}.jsonl"
+            rows = read_cell(path)
+            for beat in beats:
+                if beat == "greet":
+                    continue  # 开场由 OPENERS 承担，台词库里没有 greet 池
+                hers = [r["t"] for r in rows
+                        if r.get("beat") == beat and r.get("role") == "jiujiu"]
+                usr = [r for r in rows
+                       if r.get("beat") == beat and r.get("role") == "user"]
+                out.append({
+                    "stage": stage, "scene": scene, "beat": beat,
+                    "hers": len(hers), "unique": len(set(hers)), "usr": len(usr),
+                    "missing_def": len(hers) == 0,
+                })
+    return out
+
+
 def expected_samples(stage: str, total_cells_in_stage: int, total_convs: int) -> int:
     """估算该阶段一格的训练样本数（用于算样本级独立率）。
 
@@ -146,12 +195,59 @@ def report(rows: list[dict], total_convs: int = 300) -> None:
         print(f"\n全部格子均已达 {TARGET_PER_CELL} 条。")
 
 
+def beats_report(pools: list[dict]) -> None:
+    """节拍口径一览：按缺口从大到小排，先看最薄的池子。"""
+    pools = sorted(pools, key=lambda p: (p["hers"], p["stage"], p["scene"], p["beat"]))
+    print("| 阶段 | 场景 | 节拍 | 她的台词 | 唯一 | 用户追问 |")
+    print("|---|---|---|---:|---:|---:|")
+    for p in pools:
+        print(f"| {p['stage']} | {p['scene']} | {p['beat']} | "
+              f"{p['hers']} | {p['unique']} | {p['usr']} |")
+    short = [p for p in pools if p["hers"] < BEATS_MIN]
+    print(f"\n节拍池共 {len(pools)} 个，未达 {BEATS_MIN} 条的 {len(short)} 个，"
+          f"合计需补 {sum(BEATS_MIN - p['hers'] for p in short)} 条")
+    if short:
+        sizes = sorted(p["hers"] for p in pools)
+        print(f"池大小：最小 {sizes[0]}、中位 {sizes[len(sizes) // 2]}、最大 {sizes[-1]}")
+
+
+def beats_check(pools: list[dict]) -> int:
+    """节拍口径闸门：任一池 < BEATS_MIN 或存在重复句即返回 1。"""
+    short = [p for p in pools if p["hers"] < BEATS_MIN]
+    dups = [p for p in pools if p["unique"] < p["hers"]]
+    for p in short:
+        print(f"待补：{p['stage']}/{p['scene']}/{p['beat']} "
+              f"{p['hers']}/{BEATS_MIN}（缺 {BEATS_MIN - p['hers']}）")
+    for p in dups:
+        print(f"有重复：{p['stage']}/{p['scene']}/{p['beat']} "
+              f"重复 {p['hers'] - p['unique']} 条")
+    if short or dups:
+        total = sum(BEATS_MIN - p["hers"] for p in short)
+        print(f"\n共 {len(short)} 个池未达标，需补 {total} 条")
+        return 1
+    print(f"全部 {len(pools)} 个节拍池均达 {BEATS_MIN} 条且无重复")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="台词库多样性度量")
     ap.add_argument("--stage", default=None, help="只看某个阶段")
     ap.add_argument("--convs", type=int, default=300, help="训练对话段数（默认同 build_dataset）")
-    ap.add_argument("--check", action="store_true", help="只判断是否达标，不达标退出码 1")
+    ap.add_argument("--check", action="store_true", help="只判断整格口径是否达标，不达标退出码 1")
+    ap.add_argument("--beats", action="store_true",
+                    help="按节拍口径检查（真正的抽样单位），不达标退出码 1")
+    ap.add_argument("--beats-report", action="store_true", help="打印节拍池一览表")
     args = ap.parse_args()
+
+    if args.beats or args.beats_report:
+        pools = beat_pools(args.stage)
+        if not pools:
+            print("没有找到任何节拍池", file=sys.stderr)
+            return 1
+        if args.beats_report:
+            beats_report(pools)
+            return 0
+        return beats_check(pools)
 
     rows = collect(args.stage)
     if not rows:
