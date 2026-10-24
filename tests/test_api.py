@@ -211,11 +211,16 @@ def test_proactive_check_is_readonly(client, freeze):
 
     时钟钉在下午三点：闸门一里"深夜禁主动"排在最前，跑这条用例时若是凌晨，
     返回的理由会是深夜而不是我们要验的配额。
+
+    **两侧时钟都要钉**：只钉闸门、让写库用真实时钟，则在真实时刻晚于 15:00 时
+    `now - last_interaction` 会是负数，被判成"距上次对话太近"，用例下午跑必红。
+    所以把写库时钟一并钉到两小时前，与真实时刻彻底脱钩。
     """
     import app.main as m
 
     now = _afternoon()
     freeze("app.proactive.gate.time", now)
+    freeze("app.memory.store.time", now - 7200)
     gate = m.STATE.proactive
     gate.cfg = dict(gate.cfg, min_gap_h=0, abandon_rate=0.0)
     client.post("/api/chat", json={"message": "今天加班到十点"})
