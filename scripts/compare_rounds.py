@@ -113,8 +113,14 @@ def _fmt_delta(key: str, delta: float) -> str:
     return f"{delta:+.0f}"
 
 
-def render(v1: dict, v2: dict, b1: float | None, b2: float | None) -> str:
-    """输出 markdown 对比表。数值越小越好的项单独标注方向。"""
+def render(v1: dict, v2: dict, b1: float | None, b2: float | None,
+           label1: str = "首轮 v1", label2: str = "二轮 v2") -> str:
+    """输出 markdown 对比表。数值越小越好的项单独标注方向。
+
+    `label1/label2` 是表头里的轮次名，默认取前两轮的叫法。三轮复用本工具时
+    必须显式传「二轮 v2」「三轮 v3」——否则表头会把二轮写成「首轮」，
+    一张标错轮次的对比表比没有表更糟。
+    """
     m1, m2 = metrics(v1), metrics(v2)
 
     # 每项的方向：True 表示越大越好
@@ -122,7 +128,7 @@ def render(v1: dict, v2: dict, b1: float | None, b2: float | None) -> str:
                      "冷淡词密度": False, "复读次数": False, "复读占比": False,
                      "空回复": False, "样本数": True}
 
-    lines = ["| 指标 | 首轮 v1 | 二轮 v2 | 变化 | 方向 |", "|---|---|---|---|---|"]
+    lines = [f"| 指标 | {label1} | {label2} | 变化 | 方向 |", "|---|---|---|---|---|"]
     for key, better_up in higher_better.items():
         a, b = m1[key], m2[key]
         delta = b - a
@@ -141,8 +147,8 @@ def render(v1: dict, v2: dict, b1: float | None, b2: float | None) -> str:
                      f"| {verdict} |")
 
     lines.append("")
-    lines.append(f"首轮复读句：`{m1['复读句']}`（{m1['复读次数']:.0f} 次）")
-    lines.append(f"二轮复读句：`{m2['复读句']}`（{m2['复读次数']:.0f} 次）")
+    lines.append(f"{label1} 复读句：`{m1['复读句']}`（{m1['复读次数']:.0f} 次）")
+    lines.append(f"{label2} 复读句：`{m2['复读句']}`（{m2['复读次数']:.0f} 次）")
     lines.append("")
     lines.append("判读提醒：占有词/冷淡词密度是词表法的代理指标，"
                  "只能看趋势；区分度满分 5，≥4 才算阶段差异真正进了权重。")
@@ -151,10 +157,12 @@ def render(v1: dict, v2: dict, b1: float | None, b2: float | None) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--v1", required=True, help="首轮阶段矩阵 JSON")
-    ap.add_argument("--v2", required=True, help="二轮阶段矩阵 JSON")
-    ap.add_argument("--b1", default="", help="首轮边界结果 JSON（可选）")
-    ap.add_argument("--b2", default="", help="二轮边界结果 JSON（可选）")
+    ap.add_argument("--v1", required=True, help="前一轮阶段矩阵 JSON")
+    ap.add_argument("--v2", required=True, help="本轮阶段矩阵 JSON")
+    ap.add_argument("--b1", default="", help="前一轮边界结果 JSON（可选）")
+    ap.add_argument("--b2", default="", help="本轮边界结果 JSON（可选）")
+    ap.add_argument("--label1", default="首轮 v1", help="表头里前一轮的叫法")
+    ap.add_argument("--label2", default="二轮 v2", help="表头里本轮的叫法")
     ap.add_argument("--out", default="", help="把对比表存成 markdown（可选）")
     args = ap.parse_args()
 
@@ -163,6 +171,8 @@ def main() -> int:
         load_matrix(args.v2),
         boundary_rate(load_boundary(args.b1 or None)),
         boundary_rate(load_boundary(args.b2 or None)),
+        args.label1,
+        args.label2,
     )
     print(table)
     if args.out:
