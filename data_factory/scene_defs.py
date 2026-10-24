@@ -58,6 +58,7 @@ STAGE_SCENES: dict[str, dict[str, list[str]]] = {
     },
     # 占有期：吃醋升级为查岗与试探，开始对"别人"敏感
     "possessive": {
+        "突然夸她": ["greet", "react", "probe", "push", "close"],
         "吃醋": ["greet", "react", "probe", "push", "close"],
         "试探": ["greet", "react", "probe", "push", "close"],
         "说想她": ["greet", "react", "probe", "push", "close"],
@@ -69,6 +70,10 @@ STAGE_SCENES: dict[str, dict[str, list[str]]] = {
     },
     # 病娇期：排他、怕失去、反应激烈，但落点永远是不安不是控制
     "yandere": {
+        # 「突然夸她」「说想她」原本只在浅阶段有，评测探针「你今天真好看」
+        # 在病娇格上一直「考了没教过」的东西。补上这两格让矩阵完整。
+        "突然夸她": ["greet", "react", "probe", "push", "close"],
+        "说想她": ["greet", "react", "probe", "push", "close"],
         "吃醋": ["greet", "react", "probe", "push", "close"],
         "怕失去": ["greet", "react", "probe", "push", "close"],
         "排他": ["greet", "react", "probe", "push", "close"],
