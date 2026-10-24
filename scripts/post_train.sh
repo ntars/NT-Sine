@@ -87,7 +87,7 @@ fi
 # val 行形如 `   200    val 2.672    534.22s`；train 行形如 `    10    3.284 ▼`
 if need "$CURVE"; then
   {
-    echo "# 二轮训练曲线（$LOG）"
+    echo "# ${ROUND_LABEL}训练曲线（$LOG）"
     echo
     echo "## 验证（每 200 步一次）"
     strip_ansi < "$LOG" | grep -E '^ +[0-9]+ +val ' || true
@@ -148,11 +148,18 @@ if need "$COMPARE"; then
     exit 1
   fi
   echo "[对比] 生成对比表（$LABEL_PREV → $LABEL_CUR）…"
-  B_PREV_ARG=""
-  [ -n "$B_PREV" ] && [ -s "$B_PREV" ] && B_PREV_ARG="--b1 $B_PREV"
-  "$PY" scripts/compare_rounds.py --v1 "$M_PREV" --v2 "$M_MAIN" \
-    --label1 "$LABEL_PREV" --label2 "$LABEL_CUR" \
-    ${=B_PREV_ARG} --b2 "$BOUND" --out "$COMPARE"
+  # 首轮没有 boundary JSON，三轮有；有就带上，没有就不带。
+  # 这里刻意不用 zsh 的 ${=VAR}（词分割展开）——清单里的调用命令写的是 `bash`，
+  # bash 不认这个语法，会在这一步直接 bad substitution 中断整条流水线。
+  if [ -n "$B_PREV" ] && [ -s "$B_PREV" ]; then
+    "$PY" scripts/compare_rounds.py --v1 "$M_PREV" --v2 "$M_MAIN" \
+      --label1 "$LABEL_PREV" --label2 "$LABEL_CUR" \
+      --b1 "$B_PREV" --b2 "$BOUND" --out "$COMPARE"
+  else
+    "$PY" scripts/compare_rounds.py --v1 "$M_PREV" --v2 "$M_MAIN" \
+      --label1 "$LABEL_PREV" --label2 "$LABEL_CUR" \
+      --b2 "$BOUND" --out "$COMPARE"
+  fi
 fi
 
 # ── 第 5 步：把散落的数汇成一份报告，供判定与文档回填 ──
