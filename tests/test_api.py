@@ -267,3 +267,35 @@ def test_uninitialized_state_returns_503():
         assert r.status_code == 503
     finally:
         m.STATE = original
+
+
+def test_chat_records_intimacy_event(client):
+    """走完整 HTTP 链路：一句告白必须真的把亲密值推上去。
+
+    引擎层已经有 `note_intimacy_event` 的用例，但那是直接调函数——它证明
+    「函数是对的」，不证明「主链路接上了」。这正是本次缺陷的形态：函数写好了、
+    没有任何调用方，接口上完全看不出异常。
+    """
+    import app.main as m
+
+    before = m.STATE.emotion.state.intimacy
+    r = client.post("/api/chat", json={"message": "其实我喜欢你很久了"})
+    assert r.status_code == 200
+    assert m.STATE.emotion.state.intimacy == before + 15.0
+
+
+def test_chat_repeated_confession_counts_once(client):
+    """同一类事件连说三轮，只记一次——防「刷屏刷出跨段」。"""
+    import app.main as m
+
+    before = m.STATE.emotion.state.intimacy
+    for _ in range(3):
+        client.post("/api/chat", json={"message": "我喜欢你"})
+    assert m.STATE.emotion.state.intimacy == before + 15.0
+
+
+def test_state_exposes_relation_stage(client):
+    """状态接口要直接给出关系阶段，界面与调试台不必自己推断。"""
+    body = client.get("/api/state").json()
+    assert body["stage"]["key"] in ("cold", "thawing", "attached", "possessive", "yandere")
+    assert body["stage"]["name"]

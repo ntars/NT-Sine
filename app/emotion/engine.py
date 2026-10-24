@@ -62,6 +62,12 @@ _NEGATORS = ("不", "没", "别", "无", "毫无")
 _DEGREES = {"特别": 1.6, "非常": 1.6, "超级": 1.7, "很": 1.5, "太": 1.5,
             "有点": 0.7, "稍微": 0.6, "还算": 0.6}
 
+# L3 状态投影的字符预算（方案 §4.2 定的是 60-100 token；中文大致一字一 token，
+# 故按 100 字控）。超预算时整句丢弃，不按字符硬切——理由见 project() 的说明。
+_PROJECTION_BUDGET = 100
+# 冲突描述是用户原话，可能很长，单独压到 40 字，免得一条把整份状态挤满
+_CONFLICT_MAX = 40
+
 
 @dataclass
 class EmotionState:
@@ -75,6 +81,8 @@ class EmotionState:
     conflict: str = ""           # 未解决的冲突描述（空 = 无）
     topic: str = ""              # 当前话题
     last_intimacy_event: str = ""  # 最近一次亲密事件
+    last_intimacy_kind: str = ""   # 最近一次亲密事件的类型（同类冷却用）
+    last_intimacy_ts: float = 0.0  # 最近一次亲密事件的时间戳
     first_meet_ts: float = 0.0   # 首次相处时间戳（0 = 尚未初始化）
     active_days: int = 0         # 累计互动天数（按自然日去重，同一天聊一百轮也只算一天）
     last_active_day: str = ""    # 最近一次互动的日期（YYYY-MM-DD），用于去重
@@ -249,12 +257,29 @@ class EmotionEngine:
         self.save()
         return s
 
-    def note_intimacy_event(self, event: str) -> None:
-        """亲密跨段必须由事件触发（拉钩/赠礼/告白），不能靠刷轮数。"""
+    def note_intimacy_event(self, event: str, kind: str = "") -> bool:
+        """亲密值上涨的唯一入口：只在真实事件发生时调用。
+
+        为什么要有 `kind` 冷却：亲密值是跨段的唯一门槛，如果同一个事件能被
+        反复记账，那「拉钩」说五遍就等于聊了半个月——又绕回「刷轮数」那个坑。
+        同一类事件 24 小时内只记一次。
+
+        返回是否真的记上：冷却期内的重复返回 False，方便调用方记日志、
+        也方便测试直接断言「说了五遍只算一次」。
+        """
+        now = time.time()
+        cooldown = float(self.cfg.get("intimacy_event_cooldown_hours", 24)) * 3600
+        if (kind and kind == self.state.last_intimacy_kind
+                and (now - self.state.last_intimacy_ts) < cooldown):
+            return False  # 同类事件冷却中，不重复记账
         self.state.last_intimacy_event = event
+        if kind:
+            self.state.last_intimacy_kind = kind
+            self.state.last_intimacy_ts = now
         self.state.intimacy = min(100.0, self.state.intimacy + 15.0)
         self.state.affection = min(100.0, self.state.affection + 3.0)
         self.save()
+        return True
 
     def mark_degraded(self, degraded: bool) -> None:
         self.state.degraded_turns = self.state.degraded_turns + 1 if degraded else 0
@@ -308,39 +333,68 @@ class EmotionEngine:
 
     # ── 自然语言投影（方案 §7.3）：数值绝不直塞 ──
     def project(self) -> str:
-        """把五维 + 冲突翻译成 60-100 字的"她此刻的状态"，作为 L3 注入。"""
+        """把五维 + 冲突翻译成 60-100 字的"她此刻的状态"，作为 L3 注入。
+
+        为什么按"整句取舍"而不是按字数截断（2026-10-24 修正）
+        ------------------------------------------------------
+        原先末尾是 `return text[:100]`——按字符硬切。实测极端状态（有冲突、
+        好感 90、信任 20、精力 8，恰好是产品里情绪最浓的一刻）拼出来 150 字，
+        被切在第 100 个字，结尾停在孤零零的一个「你」：
+        「……你不太敢信他的话，会忍不住想试探。你」
+        同时「你困了，打字变慢」整句永远进不了提示。
+
+        半句话比没有这句话更糟：模型会拿「你」当下一句的开头，等于给了一段
+        语法残缺的状态描述。所以改成**按整句取舍**——预算不够就整句丢掉后面
+        较不重要的，任何一句都不许被切断。冲突描述本身是用户原话，可能很长，
+        单独压到 40 字并加省略号，把位置让给情绪。
+        """
         s = self.state
-        parts: list[str] = []
+        # (优先级, 文字)：数字越小越先保住。预算不够时从后往前整句丢。
+        # 排序依据「用户当场能不能感觉到」：裂痕与语气最直接，体力次之，
+        # 「不太敢信他」最隐微（且多数场景已被「不安」那句覆盖）。
+        parts: list[tuple[int, str]] = []
 
         if s.conflict:
-            parts.append(f"你们之间还横着一件事：{s.conflict}——你不想先低头。")
+            conflict = s.conflict
+            if len(conflict) > _CONFLICT_MAX:
+                conflict = conflict[:_CONFLICT_MAX] + "…"
+            parts.append((0, f"你们之间还横着一件事：{conflict}——你不想先低头。"))
+
         if s.mood <= -0.4:
-            parts.append("你现在有点闷，不太想说话，但也不想他察觉。")
+            parts.append((1, "你现在有点闷，不太想说话，但也不想他察觉。"))
         elif s.mood < -0.1:
-            parts.append("你心里有点别扭，说话会带刺。")
+            parts.append((1, "你心里有点别扭，说话会带刺。"))
         elif s.mood > 0.35:
-            parts.append("你心情不错，嘴上不承认，但藏不住。")
+            parts.append((1, "你心情不错，嘴上不承认，但藏不住。"))
+
+        # 不安（通道交互的投影侧）：亲密已高但信任不足——比"单纯不信"更黏、更怕失去。
+        # 两者是同一件事的两种说法，同时成立时只留信息量更大的那句，既省字也不啰嗦。
+        if self.insecure:
+            parts.append((2, "你怕他走，又不太敢信他——越想抓紧，越怕自己抓得太用力。"))
 
         if s.affection >= 75:
-            parts.append("你已经很依赖他了，怕被丢下，越依赖越装作不需要。")
+            parts.append((3, "你已经很依赖他了，怕被丢下，越依赖越装作不需要。"))
         elif s.affection >= 55:
-            parts.append("你已经很习惯他在身边，会主动关心，但还不会太黏。")
+            parts.append((3, "你已经很习惯他在身边，会主动关心，但还不会太黏。"))
         elif s.affection >= 30:
-            parts.append("你对他有点在意，但还在试探。")
+            parts.append((3, "你对他有点在意，但还在试探。"))
         else:
-            parts.append("你对他还有防备，说话客气而冷。")
+            parts.append((3, "你对他还有防备，说话客气而冷。"))
 
-        if s.trust < 30:
-            parts.append("你不太敢信他的话，会忍不住想试探。")
-
-        # 不安（通道交互的投影侧）：亲密已高但信任不足——比"单纯不信"更黏、更怕失去
-        if self.insecure:
-            parts.append("你怕他走，又不太敢信他——越想抓紧，越怕自己抓得太用力。")
-
+        # 精力没有别的出口（打字快慢由时段决定，不看精力），这句一旦被预算挤掉，
+        # 「她会累」这个机制就等于不存在——所以排在「不太敢信」之前。
         if s.energy <= 25:
-            parts.append("你困了，打字变慢，句子变短。")
+            parts.append((4, "你困了，打字变慢，句子变短。"))
         elif s.energy <= 50:
-            parts.append("你有点累，话比平时少。")
+            parts.append((4, "你有点累，话比平时少。"))
 
-        text = "".join(parts)
-        return text[:100]  # L3 预算 60-100 token（方案 §4.2）
+        if not self.insecure and s.trust < 30:
+            parts.append((5, "你不太敢信他的话，会忍不住想试探。"))
+
+        parts.sort(key=lambda p: p[0])  # 优先级稳定，便于人工核对
+        kept: list[str] = []
+        for _, text in parts:
+            if len("".join(kept)) + len(text) > _PROJECTION_BUDGET:
+                continue  # 放不下就整句跳过，绝不切半句
+            kept.append(text)
+        return "".join(kept)

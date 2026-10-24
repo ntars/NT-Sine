@@ -62,5 +62,6 @@ models/
 
 # 诊断脚本建的 checkpoint 符号链接目录（只是链接，不含权重，跑完可删）
 .ckpt_probe/
+.probe_tmp/
 .e2e_tmp/
 .pytest_tmp/

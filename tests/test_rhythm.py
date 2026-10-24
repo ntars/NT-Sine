@@ -64,15 +64,32 @@ def test_last_segment_has_no_pause():
 
 
 def test_night_is_slower():
-    """深夜整体变慢：同一段话，夜里的打字时长要明显长于白天。"""
+    """深夜整体变慢：同一段话，夜里的打字时长要明显长于白天。
+
+    口径说明（2026-10-24 修正）：语速在 4-7 字/秒之间随机，单次波动幅度
+    1.75 倍，大于夜间倍率 1.6 倍——所以"抽一次比大小"在数学上就不可能稳定，
+    原测试用 `random.seed(11)` 想固定随机，但 `plan_delivery` 内部是独立的
+    `random.Random()` 实例，全局种子对它无效，这条测试一直在碰运气（实测
+    曾出现 day=2.4 / night=2.87 失败）。改为注入固定随机源 + 取 200 次
+    采样的中位数：产品上用户感知的也是整体快慢，不是某一条的毫秒数。
+    """
     import random
 
     text = "水在桌上，你记得喝。"
-    random.seed(11)
-    day = plan_delivery(text, mood=0.0, hour=14)[0].typing_s
-    random.seed(11)
-    night = plan_delivery(text, mood=0.0, hour=3)[0].typing_s
-    assert night > day * 1.3, (day, night)
+    day = sorted(plan_delivery(text, mood=0.0, hour=14, rnd=random.Random(i))[0].typing_s
+                 for i in range(200))
+    night = sorted(plan_delivery(text, mood=0.0, hour=3, rnd=random.Random(i))[0].typing_s
+                   for i in range(200))
+    assert night[100] > day[100] * 1.3, (day[100], night[100])
+
+
+def test_rhythm_random_source_is_injectable():
+    """同一个种子必须给出同一份计划——这是上面那条测试能被复现的前提。"""
+    import random
+
+    a = plan_delivery("水在桌上。今天风大。出门多穿件。", mood=0.0, hour=14, rnd=random.Random(7))
+    b = plan_delivery("水在桌上。今天风大。出门多穿件。", mood=0.0, hour=14, rnd=random.Random(7))
+    assert [(s.text, s.typing_s, s.pause_s) for s in a] == [(s.text, s.typing_s, s.pause_s) for s in b]
 
 
 def test_plan_delivery_now_reads_local_hour():

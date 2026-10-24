@@ -252,13 +252,6 @@ class MemoryStore:
             )
             self._conn.commit()
 
-    def get_profile(self, key: str, default: str = "") -> str:
-        with self._lock:
-            row = self._conn.execute(
-                "SELECT value FROM profile WHERE key = ?", (key,)
-            ).fetchone()
-        return row[0] if row else default
-
     def all_profile(self) -> dict[str, str]:
         with self._lock:
             rows = self._conn.execute("SELECT key, value FROM profile").fetchall()

@@ -71,6 +71,8 @@ emotion:
   trust_max_gain: 1.5
   energy_decay_per_hour: 15  # 连续聊 1 小时精力 -15
   intimacy_stages: 5
+  # 同类亲密事件 24 小时内只记一次：防止"我喜欢你"说五遍就顶半个月
+  intimacy_event_cooldown_hours: 24
 
 rhythm:
   # 拟人化节奏层（方案 §6.5）：性价比最高的投入

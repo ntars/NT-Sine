@@ -109,15 +109,3 @@ def build_messages(user_text: str, assembly: Assembly, emotion: EmotionEngine,
         final_content = user_text + "\n" + "\n".join(suffix_parts)
     messages.append({"role": "user", "content": final_content})
     return messages
-
-
-def build_proactive_prompt(anchor: str) -> list[dict]:
-    """主动开口专用提示：一句话、≤20 字、带锚点、不用"在吗"。"""
-    system = (
-        "你是白玖玖。现在不是回复，是你主动先开口。"
-        "一句、不超过20字、带具体锚点、不用'在吗'。说完就等，不解释。"
-    )
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": f"开口聊聊：{anchor}"},
-    ]

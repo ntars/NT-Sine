@@ -118,10 +118,18 @@ def plan_delivery_now(text: str, mood: float = 0.0) -> list[Segment]:
     return plan_delivery(text, mood=mood, hour=time.localtime().tm_hour)
 
 
-def plan_delivery(text: str, mood: float = 0.0, hour: int | None = None) -> list[Segment]:
-    """生成节奏计划：每条的模拟打字时长 + 条间停顿。"""
+def plan_delivery(text: str, mood: float = 0.0, hour: int | None = None,
+                  rnd: random.Random | None = None) -> list[Segment]:
+    """生成节奏计划：每条的模拟打字时长 + 条间停顿。
+
+    `rnd` 只为"可测"而存在：不传时每次新建随机源（真随机，节奏不会被用户
+    "看穿"——固定节奏会让打字时长像秒表），测试要复现同一份计划时传入
+    `random.Random(固定种子)`。此前这里写死 `random.Random()`，外部
+    `random.seed()` 对它完全无效，导致夜间变速的测试实际是在赌运气。
+    """
     cfg = SETTINGS["rhythm"]
-    rnd = random.Random()  # 每次调用真随机，避免节奏被"看穿"
+    # 真随机 by default；传参则用调用方给的随机源（仅测试用）
+    rnd = rnd if rnd is not None else random.Random()
     cps_min, cps_max = float(cfg["chars_per_sec_min"]), float(cfg["chars_per_sec_max"])
     p_min, p_max = float(cfg["pause_min_s"]), float(cfg["pause_max_s"])
 

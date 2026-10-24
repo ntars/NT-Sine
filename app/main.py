@@ -19,6 +19,7 @@ from app.config import SETTINGS
 from app.context import build_messages
 from app.diary.author import write_diary
 from app.emotion.engine import EmotionEngine
+from app.emotion.events import detect as detect_intimacy_event
 from app.generation.client import GenerationError, Generator
 from app.memory.extractor import MemoryExtractor, build_profile
 from app.memory.store import MemoryStore
@@ -181,6 +182,14 @@ def chat(req: ChatRequest) -> ChatResponse:
     # 5. 情感状态随本轮更新（用过滤后的文本，避免脏输出影响状态）
     state.emotion.update(user_text, result.text)
 
+    # 5.5 亲密事件：关系跨段只能由真实事件推动，刷轮数无效。
+    #     此前这条通路只有写入口、没有任何调用方，亲密值永远停在初始 20，
+    #     「依赖」及之后三个阶段（五分之三）在真实链路上永远到不了。
+    #     详见 app/emotion/events.py 顶部说明。
+    event = detect_intimacy_event(user_text)
+    if event and state.emotion.note_intimacy_event(event[1], kind=event[0]):
+        logger.info("亲密事件：%s，亲密值 → %.0f", event[1], state.emotion.state.intimacy)
+
     # 6. 拟人化节奏（自带当前小时，深夜才会变速）
     hour_segments = plan_delivery_now(result.text, mood=state.emotion.state.mood)
 
@@ -214,6 +223,10 @@ def get_state() -> dict:
     state = _get_state()
     return {
         "emotion": state.emotion.state.to_dict(),
+        # 关系阶段单独给出：五维数值只用于展示，阶段才是"关系走到哪了"的可读结论。
+        # 此前接口不暴露它（1.11 记为改进项），前端与调试台只能靠推断。
+        "stage": {"key": state.emotion.relation_stage["key"],
+                  "name": state.emotion.relation_stage["name"]},
         "profile": state.store.all_profile(),
         "last_interaction": state.store.last_interaction_ts(),
         "turn_count": state.turn_count,
